@@ -110,7 +110,7 @@ struct ProfileEditorView: View {
                 }
             }
 
-            section("Artwork", footnote: "Uploaded artwork is posted to catbox.moe, a public host, so Discord can fetch it, including GIFs. Anyone with the link can open the file. A pasted https link skips catbox and is registered with Discord directly. Nothing is uploaded until this profile is set live.") {
+            section("Artwork", footnote: "Uploaded artwork is posted to a public host so Discord can fetch it, including GIFs. Anyone with the link can open the file. A pasted https link skips the upload and is sent to Discord directly. Nothing is uploaded until this profile is set live.") {
                 imageWell(
                     title: "Large image",
                     slot: .large,

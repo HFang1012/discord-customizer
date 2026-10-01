@@ -12,9 +12,9 @@ The in-app preview always uses the image on this Mac. A local file is copied int
 
 To show that image on Discord, the app publishes it when you set the profile live:
 
-- A file is uploaded anonymously to [catbox.moe](https://catbox.moe). The response is a public URL. Anyone with that link can view the file, including GIFs.
+- A file is uploaded anonymously to a public host, starting with [catbox.moe](https://catbox.moe). If catbox refuses the upload (it currently rejects many anonymous clients with “Invalid uploader”), the app tries litterbox, then x0.at, then pixi.mg. The response is a public URL. Anyone with that link can view the file, including GIFs.
 - The app then registers the URL with Discord’s external-assets endpoint and sends the returned `mp:external/...` path as `large_image` or `small_image`.
-- If you paste an https image link instead of a file, catbox is skipped and only the external-assets call runs. If that call fails, the https URL itself is sent as the image field.
+- If you paste an https image link instead of a file, the upload is skipped and only the external-assets call runs. If that call fails, the https URL itself is sent as the image field.
 
 ## Profiles
 

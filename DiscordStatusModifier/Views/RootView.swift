@@ -39,6 +39,15 @@ struct RootView: View {
         .preferredColorScheme(.dark)
         .tint(DiscordTheme.accent)
         .frame(minWidth: 560, minHeight: 520)
+        .overlay(alignment: .bottomTrailing) {
+            Text("credit: hucklberi & automagicle")
+                .font(.system(size: 11))
+                .foregroundStyle(DiscordTheme.muted)
+                .padding(.trailing, 16)
+                .padding(.bottom, 10)
+                .allowsHitTesting(false)
+                .accessibilityHidden(true)
+        }
         .sheet(item: $model.editor) { session in
             ProfileEditorView(session: session)
                 .environmentObject(model)

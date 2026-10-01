@@ -4,7 +4,7 @@ enum ArtworkError: LocalizedError {
     case missingFile
     case unreadable
     case tooLarge
-    case catbox(String)
+    case host(String)
 
     var errorDescription: String? {
         switch self {
@@ -14,8 +14,8 @@ enum ArtworkError: LocalizedError {
             return "Couldn’t read that image."
         case .tooLarge:
             return "That image is larger than 50 MB. Choose a smaller file."
-        case .catbox(let detail):
-            return "Couldn’t upload artwork to catbox.moe. \(detail)"
+        case .host(let detail):
+            return "Couldn’t upload artwork. \(detail)"
         }
     }
 }
@@ -40,8 +40,14 @@ enum ArtworkSource {
     }
 }
 
-/// Uploads local images to catbox.moe, then registers the public URL with Discord external assets.
+/// Uploads local images to a public host, then registers the public URL with Discord external assets.
+///
+/// Catbox is tried first because Discord can keep those URLs indefinitely. Its edge currently
+/// rejects many anonymous uploads with HTTP 412 “Invalid uploader”, so later hosts are fallbacks.
 struct ArtworkPublisher {
+    private static let userAgent = "DiscordStatusModifier/1.0 (Macintosh)"
+    private static let maxBytes = 50 * 1024 * 1024
+
     private let session: URLSession
 
     init(session: URLSession = .shared) {
@@ -64,7 +70,7 @@ struct ArtworkPublisher {
         } else {
             switch source {
             case .file(let url):
-                publicURL = try await uploadToCatbox(file: url)
+                publicURL = try await uploadPublicImage(file: url)
             case .remote(let url):
                 publicURL = url.absoluteString
             }
@@ -87,59 +93,93 @@ struct ArtworkPublisher {
         return "file:\(size):\(modified)"
     }
 
-    private func uploadToCatbox(file: URL) async throws -> String {
+    private func uploadPublicImage(file: URL) async throws -> String {
         let data: Data
         do {
             data = try Data(contentsOf: file)
         } catch {
             throw ArtworkError.unreadable
         }
-        if data.count > 50 * 1024 * 1024 {
+        if data.count > Self.maxBytes {
             throw ArtworkError.tooLarge
         }
         if data.isEmpty {
             throw ArtworkError.unreadable
         }
 
+        let filename = sanitizedFilename(for: file)
+        let mime = mimeType(for: file)
+        var lastDetail = "Every image host refused the file."
+
+        for host in ImageHost.allCases {
+            guard data.count <= host.maxBytes else { continue }
+            let status: Int
+            let body: String
+            do {
+                (status, body) = try await postFile(to: host, filename: filename, mime: mime, data: data)
+            } catch {
+                lastDetail = error.localizedDescription
+                continue
+            }
+            if let url = host.parse(body) {
+                return url
+            }
+            lastDetail = hostDetail(status: status, body: body)
+        }
+        throw ArtworkError.host(lastDetail)
+    }
+
+    private func postFile(
+        to host: ImageHost,
+        filename: String,
+        mime: String,
+        data: Data
+    ) async throws -> (Int, String) {
         let boundary = "Boundary-\(UUID().uuidString)"
-        var request = URLRequest(url: URL(string: "https://catbox.moe/user/api.php")!)
+        var request = URLRequest(url: host.endpoint)
         request.httpMethod = "POST"
         request.timeoutInterval = 60
         request.setValue("multipart/form-data; boundary=\(boundary)", forHTTPHeaderField: "Content-Type")
-        request.setValue("DiscordStatusModifier/1.0 (Macintosh)", forHTTPHeaderField: "User-Agent")
+        request.setValue(Self.userAgent, forHTTPHeaderField: "User-Agent")
+        request.httpBody = multipartBody(
+            boundary: boundary,
+            fields: host.fields,
+            fileField: host.fileField,
+            filename: filename,
+            mime: mime,
+            data: data
+        )
 
-        let filename = file.lastPathComponent.isEmpty ? "artwork" : file.lastPathComponent
+        let (responseData, response) = try await session.data(for: request)
+        let status = (response as? HTTPURLResponse)?.statusCode ?? 0
+        let body = String(data: responseData, encoding: .utf8)?
+            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        return (status, body)
+    }
+
+    private func multipartBody(
+        boundary: String,
+        fields: [(String, String)],
+        fileField: String,
+        filename: String,
+        mime: String,
+        data: Data
+    ) -> Data {
         var body = Data()
         func append(_ string: String) {
             body.append(Data(string.utf8))
         }
+        for (name, value) in fields {
+            append("--\(boundary)\r\n")
+            append("Content-Disposition: form-data; name=\"\(name)\"\r\n\r\n")
+            append("\(value)\r\n")
+        }
         append("--\(boundary)\r\n")
-        append("Content-Disposition: form-data; name=\"reqtype\"\r\n\r\n")
-        append("fileupload\r\n")
-        append("--\(boundary)\r\n")
-        append("Content-Disposition: form-data; name=\"fileToUpload\"; filename=\"\(filename)\"\r\n")
-        append("Content-Type: \(mimeType(for: file))\r\n\r\n")
+        append("Content-Disposition: form-data; name=\"\(fileField)\"; filename=\"\(filename)\"\r\n")
+        append("Content-Type: \(mime)\r\n\r\n")
         body.append(data)
         append("\r\n--\(boundary)--\r\n")
-        request.httpBody = body
-
-        let responseData: Data
-        let response: URLResponse
-        do {
-            (responseData, response) = try await session.data(for: request)
-        } catch {
-            throw ArtworkError.catbox(error.localizedDescription)
-        }
-
-        let text = String(data: responseData, encoding: .utf8)?
-            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        let status = (response as? HTTPURLResponse)?.statusCode ?? 0
-        guard (200..<300).contains(status),
-              let url = URL(string: text),
-              url.scheme?.lowercased() == "https" else {
-            throw ArtworkError.catbox(catboxDetail(status: status, body: text))
-        }
-        return text
+        return body
     }
 
     /// Returns Discord's `mp:external/...` path, or nil so the caller can send the https URL itself.
@@ -151,7 +191,7 @@ struct ArtworkPublisher {
         request.httpMethod = "POST"
         request.timeoutInterval = 20
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.setValue("DiscordStatusModifier/1.0 (Macintosh)", forHTTPHeaderField: "User-Agent")
+        request.setValue(Self.userAgent, forHTTPHeaderField: "User-Agent")
         request.httpBody = try? JSONSerialization.data(withJSONObject: ["urls": [url]])
 
         guard let (data, response) = try? await session.data(for: request),
@@ -183,6 +223,30 @@ struct ArtworkPublisher {
         return value
     }
 
+    private static func httpsURL(in text: String) -> String? {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let url = URL(string: trimmed), url.scheme?.lowercased() == "https" else {
+            return nil
+        }
+        return trimmed
+    }
+
+    private static func piximgURL(in text: String) -> String? {
+        guard let data = text.data(using: .utf8),
+              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            return httpsURL(in: text)
+        }
+        if let url = string(json["direct_url"]), URL(string: url)?.scheme?.lowercased() == "https" {
+            return url
+        }
+        if let images = json["images"] as? [[String: Any]],
+           let url = string(images.first?["direct_url"]),
+           URL(string: url)?.scheme?.lowercased() == "https" {
+            return url
+        }
+        return nil
+    }
+
     private func mimeType(for file: URL) -> String {
         switch file.pathExtension.lowercased() {
         case "png": return "image/png"
@@ -193,11 +257,83 @@ struct ArtworkPublisher {
         }
     }
 
-    private func catboxDetail(status: Int, body: String) -> String {
+    private func sanitizedFilename(for file: URL) -> String {
+        let ext = file.pathExtension.lowercased()
+        let safeExt = ["png", "jpg", "jpeg", "webp", "gif"].contains(ext) ? ext : "png"
+        let raw = file.lastPathComponent
+        let allowed = CharacterSet.alphanumerics.union(CharacterSet(charactersIn: "._-"))
+        let filtered = raw.unicodeScalars.map { allowed.contains($0) ? Character($0) : Character("_") }
+        let name = String(filtered)
+        if name.isEmpty || name == "." || name.hasPrefix(".") {
+            return "artwork.\(safeExt)"
+        }
+        return name
+    }
+
+    private func hostDetail(status: Int, body: String) -> String {
         let trimmed = body.trimmingCharacters(in: .whitespacesAndNewlines)
         if trimmed.isEmpty || trimmed.count > 180 || trimmed.lowercased().contains("<html") {
             return "The host returned status \(status)."
         }
         return trimmed
+    }
+
+    /// Public image hosts Discord can fetch. Catbox is preferred; the rest cover its anonymous-upload block.
+    private enum ImageHost: CaseIterable {
+        case catbox
+        case litterbox
+        case x0
+        case piximg
+
+        var endpoint: URL {
+            switch self {
+            case .catbox:
+                return URL(string: "https://catbox.moe/user/api.php")!
+            case .litterbox:
+                return URL(string: "https://litterbox.catbox.moe/resources/internals/api.php")!
+            case .x0:
+                return URL(string: "https://x0.at")!
+            case .piximg:
+                return URL(string: "https://pixi.mg/api")!
+            }
+        }
+
+        var fields: [(String, String)] {
+            switch self {
+            case .catbox:
+                return [("reqtype", "fileupload")]
+            case .litterbox:
+                return [("reqtype", "fileupload"), ("time", "72h")]
+            case .x0, .piximg:
+                return []
+            }
+        }
+
+        var fileField: String {
+            switch self {
+            case .catbox, .litterbox:
+                return "fileToUpload"
+            case .x0, .piximg:
+                return "file"
+            }
+        }
+
+        var maxBytes: Int {
+            switch self {
+            case .piximg:
+                return 2 * 1024 * 1024
+            default:
+                return ArtworkPublisher.maxBytes
+            }
+        }
+
+        func parse(_ body: String) -> String? {
+            switch self {
+            case .catbox, .litterbox, .x0:
+                return ArtworkPublisher.httpsURL(in: body)
+            case .piximg:
+                return ArtworkPublisher.piximgURL(in: body)
+            }
+        }
     }
 }
