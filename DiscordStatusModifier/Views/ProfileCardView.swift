@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 
 struct ProfileCardView: View {
@@ -15,6 +16,7 @@ struct ProfileCardView: View {
     var onDuplicate: () -> Void
     var onDownload: () -> Void
     var onDelete: () -> Void
+    var onCustomTimer: ((Int, Int, Int) -> Void)? = nil
 
     var body: some View {
         ZStack(alignment: .topTrailing) {
@@ -52,17 +54,22 @@ struct ProfileCardView: View {
     }
 
     private var cardButton: some View {
-        Button(action: {
-            guard isInteractive else { return }
-            onSelect()
-        }) {
-            cardBody
-        }
-        .buttonStyle(.plain)
-        .disabled(!isInteractive)
-        .accessibilityAddTraits(isLive ? .isSelected : [])
-        .accessibilityLabel("\(profile.activityType.label), \(profile.listTitle)")
-        .accessibilityHint(isLive ? "Stops this status" : "Sets this status live")
+        cardBody
+            .background {
+                Button(action: {
+                    guard isInteractive else { return }
+                    onSelect()
+                }) {
+                    Color.clear
+                        .contentShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                }
+                .buttonStyle(.plain)
+                .disabled(!isInteractive)
+            }
+            .accessibilityAddTraits(isLive ? .isSelected : [])
+            .accessibilityLabel("\(profile.activityType.label), \(profile.listTitle)")
+            .accessibilityHint(isLive ? "Stops this status" : "Sets this status live")
+            .accessibilityAddTraits(.isButton)
     }
 
     private var cardBody: some View {
@@ -72,6 +79,7 @@ struct ProfileCardView: View {
                 .foregroundStyle(DiscordTheme.muted)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(.trailing, showsMenu ? 28 : 0)
+                .allowsHitTesting(false)
 
             HStack(alignment: .top, spacing: 12) {
                 artworkStack
@@ -83,6 +91,7 @@ struct ProfileCardView: View {
                         color: .white
                     ))
                         .lineLimit(2)
+                        .allowsHitTesting(false)
                     if !DiscordFormatting.plain(profile.details).trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                         Text(DiscordFormatting.attributed(
                             profile.details,
@@ -91,6 +100,7 @@ struct ProfileCardView: View {
                             color: DiscordTheme.secondary
                         ))
                             .lineLimit(1)
+                            .allowsHitTesting(false)
                     }
                     if !DiscordFormatting.plain(profile.state).trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                         Text(DiscordFormatting.attributed(
@@ -100,14 +110,27 @@ struct ProfileCardView: View {
                             color: DiscordTheme.secondary
                         ))
                             .lineLimit(1)
+                            .allowsHitTesting(false)
                     }
-                    if timer != .hidden {
+                    if profile.timerMode == .custom {
+                        CustomTimerFields(
+                            hours: profile.customHoursValue,
+                            minutes: profile.customMinutesValue,
+                            seconds: profile.customSecondsValue,
+                            isEnabled: !isPublishing,
+                            onCommit: { hours, minutes, seconds in
+                                onCustomTimer?(hours, minutes, seconds)
+                            }
+                        )
+                    } else if timer != .hidden {
                         PresenceTimer(display: timer)
+                            .allowsHitTesting(false)
                     }
                     if let statusNote {
                         Text(statusNote)
                             .font(.system(size: 12, weight: .medium))
                             .foregroundStyle(DiscordTheme.accent)
+                            .allowsHitTesting(false)
                     }
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -128,14 +151,187 @@ struct ProfileCardView: View {
                             .frame(height: 32)
                             .background(DiscordTheme.button)
                             .clipShape(RoundedRectangle(cornerRadius: 4, style: .continuous))
+                            .allowsHitTesting(false)
                     }
                 }
+                .allowsHitTesting(false)
             }
         }
         .padding(14)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .contentShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
     }
+
+private struct CustomTimerFields: View {
+    var hours: Int
+    var minutes: Int
+    var seconds: Int
+    var isEnabled: Bool
+    var onCommit: (Int, Int, Int) -> Void
+
+    @State private var hoursText = ""
+    @State private var minutesText = ""
+    @State private var secondsText = ""
+    @FocusState private var focused: Field?
+
+    private enum Field: Hashable {
+        case hours, minutes, seconds
+    }
+
+    var body: some View {
+        HStack(spacing: 6) {
+            Image(systemName: "gamecontroller.fill")
+                .allowsHitTesting(false)
+            HStack(spacing: 0) {
+                part($hoursText, field: .hours, width: 36)
+                Text(":")
+                    .allowsHitTesting(false)
+                part($minutesText, field: .minutes, width: 28)
+                Text(":")
+                    .allowsHitTesting(false)
+                part($secondsText, field: .seconds, width: 28)
+            }
+            .padding(.horizontal, 6)
+            .padding(.vertical, 3)
+            .background {
+                RoundedRectangle(cornerRadius: 5, style: .continuous)
+                    .fill(Color.white.opacity(0.08))
+            }
+            .overlay {
+                RoundedRectangle(cornerRadius: 5, style: .continuous)
+                    .strokeBorder(DiscordTheme.timer, lineWidth: focused == nil ? 1 : 1.5)
+            }
+            .contentShape(RoundedRectangle(cornerRadius: 5, style: .continuous))
+            .background {
+                OutsideClickMonitor(enabled: focused != nil) {
+                    focused = nil
+                }
+            }
+        }
+        .font(.system(size: 13, weight: .semibold).monospacedDigit())
+        .foregroundStyle(DiscordTheme.timer)
+        .onAppear(perform: sync)
+        .onChange(of: hours) { _, _ in syncIfIdle() }
+        .onChange(of: minutes) { _, _ in syncIfIdle() }
+        .onChange(of: seconds) { _, _ in syncIfIdle() }
+        .onChange(of: focused) { old, new in
+            if old != nil, old != new {
+                commit()
+            }
+        }
+        .onExitCommand {
+            focused = nil
+        }
+        .help("Remaining time. Click outside the box when you’re done. Extra minutes and seconds roll into the next unit.")
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel("Custom timer")
+    }
+
+    private func part(_ text: Binding<String>, field: Field, width: CGFloat) -> some View {
+        TextField("", text: text)
+            .textFieldStyle(.plain)
+            .multilineTextAlignment(.center)
+            .frame(width: width)
+            .focused($focused, equals: field)
+            .disabled(!isEnabled)
+            .onSubmit { focused = nil }
+    }
+
+    private func syncIfIdle() {
+        guard focused == nil else { return }
+        sync()
+    }
+
+    private func sync() {
+        hoursText = String(hours)
+        minutesText = String(format: "%02d", minutes)
+        secondsText = String(format: "%02d", seconds)
+    }
+
+    private func commit() {
+        var nextSeconds = max(0, Int(secondsText.filter(\.isNumber)) ?? 0)
+        var nextMinutes = max(0, Int(minutesText.filter(\.isNumber)) ?? 0)
+        var nextHours = max(0, Int(hoursText.filter(\.isNumber)) ?? 0)
+        nextMinutes += nextSeconds / 60
+        nextSeconds %= 60
+        nextHours += nextMinutes / 60
+        nextMinutes %= 60
+        if nextHours > 999 {
+            nextHours = 999
+            nextMinutes = 59
+            nextSeconds = 59
+        }
+        hoursText = String(nextHours)
+        minutesText = String(format: "%02d", nextMinutes)
+        secondsText = String(format: "%02d", nextSeconds)
+        if nextHours != hours || nextMinutes != minutes || nextSeconds != seconds {
+            onCommit(nextHours, nextMinutes, nextSeconds)
+        }
+    }
+}
+
+/// Ends timer editing when the user clicks anywhere outside the time box.
+private struct OutsideClickMonitor: NSViewRepresentable {
+    var enabled: Bool
+    var onOutside: () -> Void
+
+    func makeNSView(context: Context) -> MonitorView {
+        MonitorView()
+    }
+
+    func updateNSView(_ view: MonitorView, context: Context) {
+        view.onOutside = onOutside
+        view.enabled = enabled
+    }
+
+    final class MonitorView: NSView {
+        var onOutside: (() -> Void)?
+        var enabled = false {
+            didSet {
+                if enabled != oldValue {
+                    updateMonitor()
+                }
+            }
+        }
+
+        private var monitor: Any?
+
+        override var intrinsicContentSize: NSSize {
+            NSSize(width: NSView.noIntrinsicMetric, height: NSView.noIntrinsicMetric)
+        }
+
+        override func viewDidMoveToWindow() {
+            super.viewDidMoveToWindow()
+            updateMonitor()
+        }
+
+        private func updateMonitor() {
+            if let monitor {
+                NSEvent.removeMonitor(monitor)
+                self.monitor = nil
+            }
+            guard enabled, window != nil else { return }
+            monitor = NSEvent.addLocalMonitorForEvents(matching: [.leftMouseDown, .keyDown]) { [weak self] event in
+                guard let self else { return event }
+                if event.type == .keyDown {
+                    guard event.keyCode == 53 else { return event }
+                    DispatchQueue.main.async { self.onOutside?() }
+                    return nil
+                }
+                guard let window = self.window, event.window === window else { return event }
+                let point = self.convert(event.locationInWindow, from: nil)
+                guard !self.bounds.contains(point) else { return event }
+                DispatchQueue.main.async { self.onOutside?() }
+                return nil
+            }
+        }
+
+        deinit {
+            if let monitor {
+                NSEvent.removeMonitor(monitor)
+            }
+        }
+    }
+}
 
     private var artworkStack: some View {
         ZStack(alignment: .bottomTrailing) {

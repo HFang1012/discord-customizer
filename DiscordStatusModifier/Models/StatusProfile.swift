@@ -14,9 +14,7 @@ private func profileValidationFailure(_ message: String) -> Result<StatusProfile
     .failure(ProfileValidationError(message))
 }
 
-enum ActivityType: Int, Codable, CaseIterable, Identifiable, Hashable {
-    /// Clears the Discord activity so the profile shows nothing.
-    case none = -1
+enum ActivityType: Int, CaseIterable, Identifiable, Hashable {
     case playing = 0
     case listening = 2
     case watching = 3
@@ -26,17 +24,23 @@ enum ActivityType: Int, Codable, CaseIterable, Identifiable, Hashable {
 
     var label: String {
         switch self {
-        case .none: return "None"
         case .playing: return "Playing"
         case .listening: return "Listening"
         case .watching: return "Watching"
         case .competing: return "Competing"
         }
     }
+}
 
-    /// Value Discord accepts on SET_ACTIVITY. None is applied by clearing the activity.
-    var discordType: Int? {
-        self == .none ? nil : rawValue
+extension ActivityType: Codable {
+    init(from decoder: Decoder) throws {
+        let raw = try decoder.singleValueContainer().decode(Int.self)
+        self = ActivityType(rawValue: raw) ?? .playing
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.singleValueContainer()
+        try container.encode(rawValue)
     }
 }
 
@@ -62,6 +66,7 @@ enum TimerMode: String, Codable, CaseIterable, Identifiable, Hashable {
     case countUpFromStart
     case countDownDuration
     case countDownUntil
+    case custom
 
     var id: String { rawValue }
 
@@ -77,6 +82,8 @@ enum TimerMode: String, Codable, CaseIterable, Identifiable, Hashable {
             return "Count down for a duration"
         case .countDownUntil:
             return "Count down to a time"
+        case .custom:
+            return "Custom timer"
         }
     }
 }
@@ -121,6 +128,10 @@ struct StatusProfile: Codable, Equatable, Identifiable {
     var countdownHours: Int
     var countdownMinutes: Int
     var countdownSeconds: Int
+    /// Remaining time typed on the card when `timerMode` is `.custom`. Optional so older saves still load.
+    var customHours: Int?
+    var customMinutes: Int?
+    var customSeconds: Int?
     var partyCurrent: Int?
     var partyMax: Int?
     var partyID: String
@@ -144,6 +155,14 @@ struct StatusProfile: Codable, Equatable, Identifiable {
         return TimeInterval(hours * 3600 + minutes * 60 + seconds)
     }
 
+    var customHoursValue: Int { min(999, max(0, customHours ?? 0)) }
+    var customMinutesValue: Int { min(59, max(0, customMinutes ?? 0)) }
+    var customSecondsValue: Int { min(59, max(0, customSeconds ?? 0)) }
+
+    var customDuration: TimeInterval {
+        TimeInterval(customHoursValue * 3600 + customMinutesValue * 60 + customSecondsValue)
+    }
+
     var visibleButtons: [ProfileButton] {
         buttons.filter { !$0.label.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
     }
@@ -153,7 +172,7 @@ struct StatusProfile: Codable, Equatable, Identifiable {
         return StatusProfile(
             id: UUID(),
             title: "",
-            activityType: .none,
+            activityType: .playing,
             details: "",
             state: "",
             detailsURL: "",
@@ -179,6 +198,9 @@ struct StatusProfile: Codable, Equatable, Identifiable {
             countdownHours: 0,
             countdownMinutes: 30,
             countdownSeconds: 0,
+            customHours: 0,
+            customMinutes: 0,
+            customSeconds: 0,
             partyCurrent: nil,
             partyMax: nil,
             partyID: UUID().uuidString.lowercased(),
@@ -276,6 +298,10 @@ struct StatusProfile: Codable, Equatable, Identifiable {
             if profile.timerEnd == nil {
                 return profileValidationFailure("Choose the time the countdown should reach.")
             }
+        case .custom:
+            profile.customHours = profile.customHoursValue
+            profile.customMinutes = profile.customMinutesValue
+            profile.customSeconds = profile.customSecondsValue
         }
 
         if partyEnabled {

@@ -101,6 +101,21 @@ final class ProfileStore {
         return FileManager.default.fileExists(atPath: url.path) ? url : nil
     }
 
+    func stageData(_ data: Data, fileExtension: String) throws -> URL {
+        let ext = try normalizedExtension(fileExtension)
+        try validateArtworkData(data)
+        let destination = stagingDirectory.appendingPathComponent("\(UUID().uuidString).\(ext)")
+        if FileManager.default.fileExists(atPath: destination.path) {
+            try FileManager.default.removeItem(at: destination)
+        }
+        do {
+            try data.write(to: destination, options: .atomic)
+        } catch {
+            throw StoreError.writeFailed(error.localizedDescription)
+        }
+        return destination
+    }
+
     func stageCopy(of source: URL) throws -> URL {
         let ext = try validatedExtension(for: source)
         let destination = stagingDirectory.appendingPathComponent("\(UUID().uuidString).\(ext)")

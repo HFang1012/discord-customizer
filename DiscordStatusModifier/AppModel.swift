@@ -122,6 +122,7 @@ final class AppModel: ObservableObject {
     private var didApplyThisConnection = false
     private var sendTask: Task<Void, Never>?
     private var sendGeneration = 0
+    private var idleClearTask: Task<Void, Never>?
     private var previewTasks = Set<String>()
 
     private enum Keys {
@@ -156,6 +157,7 @@ final class AppModel: ObservableObject {
             client.shutdownClearingActivity()
         }
         ipc.setClientID(DiscordClientConfiguration.applicationID)
+        startIdleActivityClear()
         Task { @MainActor [weak self] in
             self?.refreshRemotePreviews()
         }
@@ -265,7 +267,31 @@ final class AppModel: ObservableObject {
         case .countDownUntil:
             guard let end = profile.timerEnd else { return .hidden }
             return .countDown(to: end)
+        case .custom:
+            if profile.id == activeProfileID, anchorProfileID == profile.id, let end = countDownAnchor {
+                return .countDown(to: end)
+            }
+            return .fixed(profile.customDuration)
         }
+    }
+
+    func setCustomTimer(profileID: UUID, hours: Int, minutes: Int, seconds: Int) {
+        guard let index = profiles.firstIndex(where: { $0.id == profileID }) else { return }
+        let hours = min(999, max(0, hours))
+        let minutes = min(59, max(0, minutes))
+        let seconds = min(59, max(0, seconds))
+        guard profiles[index].customHours != hours
+            || profiles[index].customMinutes != minutes
+            || profiles[index].customSeconds != seconds else { return }
+        profiles[index].customHours = hours
+        profiles[index].customMinutes = minutes
+        profiles[index].customSeconds = seconds
+        profiles[index].updatedAt = Date()
+        persistProfiles()
+        guard activeProfileID == profileID else { return }
+        resetAnchors(for: profiles[index])
+        didApplyThisConnection = false
+        startSend(source: .user, replaceExisting: false)
     }
 
     func beginNewProfile() {
@@ -516,18 +542,15 @@ final class AppModel: ObservableObject {
             return
         }
 
-        let isNone = profile.activityType == .none
         let hasUserLarge = profile.largeImageFilename != nil
             || !profile.largeImageRemoteURL.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-        let needsArtwork = !isNone && (
-            hasUserLarge
+        let needsArtwork = hasUserLarge
             || profile.smallImageFilename != nil
             || !profile.smallImageRemoteURL.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-        )
         let blankReady = defaults.string(forKey: Keys.blankPublicURL)?.hasPrefix("https://") == true
-        let needsBlankUpload = !isNone && !hasUserLarge && !blankReady
+        let needsBlankUpload = !hasUserLarge && !blankReady
         publishingProfileID = profileID
-        publishingLabel = isNone ? "Clearing status…" : ((needsArtwork || needsBlankUpload) ? "Uploading artwork…" : "Setting status…")
+        publishingLabel = (needsArtwork || needsBlankUpload) ? "Uploading artwork…" : "Setting status…"
         defer {
             if publishingProfileID == profileID {
                 publishingProfileID = nil
@@ -535,13 +558,6 @@ final class AppModel: ObservableObject {
         }
 
         do {
-            if isNone {
-                try await ipc.clearActivity()
-                guard generation == sendGeneration, !Task.isCancelled else { return }
-                didApplyThisConnection = true
-                banner = nil
-                return
-            }
             let large = try await imageKey(for: profile, slot: .large)
             guard generation == sendGeneration, !Task.isCancelled else { return }
             let latestForSmall = profiles.first(where: { $0.id == profileID }) ?? profile
@@ -786,7 +802,11 @@ final class AppModel: ObservableObject {
     private func resetAnchors(for profile: StatusProfile, now: Date = Date()) {
         anchorProfileID = profile.id
         countUpAnchor = now
-        countDownAnchor = now.addingTimeInterval(profile.countdownDuration)
+        if profile.timerMode == .custom {
+            countDownAnchor = now.addingTimeInterval(profile.customDuration)
+        } else {
+            countDownAnchor = now.addingTimeInterval(profile.countdownDuration)
+        }
     }
 
     private func ensureAnchors(for profile: StatusProfile, now: Date = Date()) {
@@ -818,6 +838,29 @@ final class AppModel: ObservableObject {
         } else {
             defaults.removeObject(forKey: Keys.activeProfileID)
         }
+    }
+
+    private func startIdleActivityClear() {
+        idleClearTask = Task { [weak self] in
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .seconds(1))
+                await self?.clearActivityIfIdle()
+            }
+        }
+    }
+
+    /// If no profile is selected, clear Discord so a leftover activity does not stay up.
+    private func clearActivityIfIdle() async {
+        guard activeProfileID == nil else { return }
+        guard case .connected = connection else { return }
+        let generation = sendGeneration
+        do {
+            try await ipc.clearActivity()
+        } catch {
+            return
+        }
+        guard generation != sendGeneration, activeProfileID != nil else { return }
+        startSend(source: .reconnect, replaceExisting: true)
     }
 
     private func refreshRemotePreviews() {

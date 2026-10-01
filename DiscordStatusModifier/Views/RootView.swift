@@ -267,9 +267,10 @@ struct RootView: View {
                 spacing: 16
             ) {
                 ForEach(model.profiles) { profile in
+                    let artwork = model.artwork(for: profile)
                     ProfileCardView(
                         profile: profile,
-                        artwork: model.artwork(for: profile),
+                        artwork: artwork,
                         timer: model.timerDisplay(for: profile, previewAnchor: nil),
                         isLive: model.activeProfileID == profile.id,
                         isPublishing: model.publishingProfileID == profile.id,
@@ -281,9 +282,12 @@ struct RootView: View {
                         onEdit: { model.beginEdit(profile) },
                         onDuplicate: { model.duplicate(profile) },
                         onDownload: { download(profile) },
-                        onDelete: { model.pendingDelete = profile }
+                        onDelete: { model.pendingDelete = profile },
+                        onCustomTimer: { hours, minutes, seconds in
+                            model.setCustomTimer(profileID: profile.id, hours: hours, minutes: minutes, seconds: seconds)
+                        }
                     )
-                    .id("\(profile.id.uuidString)-\(revision)")
+                    .id("\(profile.id.uuidString)-\(revision)-\(artworkDisplayID(local: artwork.largeLocal, remote: artwork.largeRemote))-\(artworkDisplayID(local: artwork.smallLocal, remote: artwork.smallRemote))")
                 }
             }
             .padding(20)

@@ -11,7 +11,7 @@ enum ActivityBuilder {
     ) -> [String: Any] {
         let name = formattedField(profile.titleSource, limit: ProfileLimits.title, fallback: "Untitled")
         var activity: [String: Any] = [
-            "type": profile.activityType.discordType ?? ActivityType.playing.rawValue,
+            "type": profile.activityType.rawValue,
             "name": name,
             "status_display_type": profile.statusDisplayType.rawValue,
             "instance": true
@@ -89,6 +89,9 @@ enum ActivityBuilder {
         case .countDownUntil:
             guard let end = profile.timerEnd else { return nil }
             return ["end": unixSeconds(end)]
+        case .custom:
+            guard let countDownEnd else { return nil }
+            return ["end": unixSeconds(countDownEnd)]
         }
     }
 

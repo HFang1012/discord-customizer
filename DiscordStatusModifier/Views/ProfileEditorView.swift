@@ -9,6 +9,7 @@ struct ProfileEditorView: View {
     @State private var importerPresented = false
     @State private var largeTargeted = false
     @State private var smallTargeted = false
+    @State private var pendingCrop: PendingCrop?
 
     var body: some View {
         NavigationStack {
@@ -70,6 +71,14 @@ struct ProfileEditorView: View {
                 acceptFile(url, slot: slot)
             }
         }
+        .sheet(item: $pendingCrop) { pending in
+            SquareCropSheet(sourceURL: pending.url) { data, fileExtension in
+                commitCrop(pending, data: data, fileExtension: fileExtension)
+            } onCancel: {
+                model.discardStaged(pending.url)
+                pendingCrop = nil
+            }
+        }
     }
 
     private var form: some View {
@@ -87,7 +96,7 @@ struct ProfileEditorView: View {
                     }
                     .pickerStyle(.segmented)
                     .labelsHidden()
-                    Text("None clears the activity, so Discord shows nothing. The other types set the word above the title.")
+                    Text("Sets the word above the title.")
                         .font(.system(size: 12))
                         .foregroundStyle(DiscordTheme.muted)
                         .fixedSize(horizontal: false, vertical: true)
@@ -144,7 +153,7 @@ struct ProfileEditorView: View {
                 buttonFields(index: 1, title: "Second button")
             }
 
-            section("Timer", footnote: "Count up shows elapsed time. An end time counts down. The green timer looks like 1:26:34.") {
+            section("Timer", footnote: "Count up shows elapsed time. An end time counts down. Custom timer is typed on the card, like 1:26:34, and Discord counts down from it.") {
                 Picker("Timer", selection: $session.draft.timerMode) {
                     ForEach(TimerMode.allCases) { mode in
                         Text(mode.label).tag(mode)
@@ -197,13 +206,14 @@ struct ProfileEditorView: View {
     }
 
     private var previewColumn: some View {
-        VStack(alignment: .leading, spacing: 12) {
+        let artwork = model.editorArtwork(for: session)
+        return VStack(alignment: .leading, spacing: 12) {
             Text("Preview")
                 .font(.system(size: 12, weight: .semibold))
                 .foregroundStyle(DiscordTheme.muted)
             ProfileCardView(
                 profile: session.draft,
-                artwork: model.editorArtwork(for: session),
+                artwork: artwork,
                 timer: model.timerDisplay(for: session.draft, previewAnchor: session.openedAt),
                 isLive: model.activeProfileID == session.draft.id,
                 isPublishing: false,
@@ -215,9 +225,14 @@ struct ProfileEditorView: View {
                 onEdit: {},
                 onDuplicate: {},
                 onDownload: {},
-                onDelete: {}
+                onDelete: {},
+                onCustomTimer: { hours, minutes, seconds in
+                    session.draft.customHours = hours
+                    session.draft.customMinutes = minutes
+                    session.draft.customSeconds = seconds
+                }
             )
-            .id(model.previewRevision)
+            .id(previewCardID(artwork))
             Text("The preview uses the image on this Mac. Discord receives it only after you set the profile live.")
                 .font(.system(size: 12))
                 .foregroundStyle(DiscordTheme.muted)
@@ -269,6 +284,10 @@ struct ProfileEditorView: View {
                 ),
                 displayedComponents: [.date, .hourAndMinute]
             )
+        case .custom:
+            Text("Type the time on the card. Discord counts down from that time when you apply the profile.")
+                .font(.system(size: 12))
+                .foregroundStyle(DiscordTheme.muted)
         }
     }
 
@@ -289,13 +308,14 @@ struct ProfileEditorView: View {
         return VStack(alignment: .leading, spacing: 10) {
             HStack(alignment: .center, spacing: 12) {
                 ArtworkImage(local: preview, remote: remotePreview, cornerRadius: 10)
+                    .id(artworkDisplayID(local: preview, remote: remotePreview))
                     .frame(width: 64, height: 64)
                     .clipped()
                 VStack(alignment: .leading, spacing: 6) {
                     Text(title)
                         .font(.system(size: 13, weight: .semibold))
                         .foregroundStyle(.white)
-                    Text("PNG, JPEG, WebP, or GIF. Drop a file here or paste an https link.")
+                    Text("PNG, JPEG, WebP, or GIF. A file is cropped to a square. You can also paste an https link.")
                         .font(.system(size: 12))
                         .foregroundStyle(DiscordTheme.muted)
                         .fixedSize(horizontal: false, vertical: true)
@@ -377,6 +397,14 @@ struct ProfileEditorView: View {
         }
     }
 
+    private func previewCardID(_ artwork: CardArtwork) -> String {
+        [
+            String(model.previewRevision),
+            artworkDisplayID(local: artwork.largeLocal, remote: artwork.largeRemote),
+            artworkDisplayID(local: artwork.smallLocal, remote: artwork.smallRemote)
+        ].joined(separator: "|")
+    }
+
     private func hasImage(_ slot: ArtworkSlot) -> Bool {
         switch slot {
         case .large:
@@ -427,7 +455,25 @@ struct ProfileEditorView: View {
     private func acceptFile(_ url: URL, slot: ArtworkSlot) {
         do {
             let staged = try model.stageImage(from: url)
-            session.applyStaged(staged, slot: slot)
+            presentCrop(url: staged, slot: slot)
+        } catch {
+            session.validation = error.localizedDescription
+        }
+    }
+
+    private func presentCrop(url: URL, slot: ArtworkSlot) {
+        if let existing = pendingCrop {
+            model.discardStaged(existing.url)
+        }
+        pendingCrop = PendingCrop(url: url, slot: slot)
+    }
+
+    private func commitCrop(_ pending: PendingCrop, data: Data, fileExtension: String) {
+        do {
+            let staged = try model.store.stageData(data, fileExtension: fileExtension)
+            model.discardStaged(pending.url)
+            session.applyStaged(staged, slot: pending.slot)
+            pendingCrop = nil
         } catch {
             session.validation = error.localizedDescription
         }
@@ -436,18 +482,25 @@ struct ProfileEditorView: View {
     private func handleDrop(_ providers: [NSItemProvider], slot: ArtworkSlot) -> Bool {
         guard let provider = providers.first else { return false }
         let store = model.store
-        let editorSession = session
         if provider.hasItemConformingToTypeIdentifier(UTType.fileURL.identifier) {
             _ = provider.loadObject(ofClass: URL.self) { object, _ in
-                guard let url = object as? URL else { return }
-                stageIncomingFile(at: url, store: store, session: editorSession, slot: slot)
+                guard let url = object else { return }
+                stageIncomingFile(at: url, store: store, onStaged: { staged in
+                    presentCrop(url: staged, slot: slot)
+                }, onError: { message in
+                    session.validation = message
+                })
             }
             return true
         }
         if provider.hasItemConformingToTypeIdentifier(UTType.image.identifier) {
             _ = provider.loadFileRepresentation(forTypeIdentifier: UTType.image.identifier) { url, _ in
                 guard let url else { return }
-                stageIncomingFile(at: url, store: store, session: editorSession, slot: slot)
+                stageIncomingFile(at: url, store: store, onStaged: { staged in
+                    presentCrop(url: staged, slot: slot)
+                }, onError: { message in
+                    session.validation = message
+                })
             }
             return true
         }
@@ -459,6 +512,10 @@ struct ProfileEditorView: View {
     }
 
     private func cancel() {
+        if let pending = pendingCrop {
+            model.discardStaged(pending.url)
+            pendingCrop = nil
+        }
         model.discardStaged(session.largeStaged)
         model.discardStaged(session.smallStaged)
         session.largeStaged = nil
@@ -468,18 +525,29 @@ struct ProfileEditorView: View {
     }
 }
 
-private func stageIncomingFile(at url: URL, store: ProfileStore, session: EditorSession, slot: ArtworkSlot) {
+private struct PendingCrop: Identifiable {
+    let id = UUID()
+    let url: URL
+    let slot: ArtworkSlot
+}
+
+private func stageIncomingFile(
+    at url: URL,
+    store: ProfileStore,
+    onStaged: @escaping (URL) -> Void,
+    onError: @escaping (String) -> Void
+) {
     let accessed = url.startAccessingSecurityScopedResource()
     defer { if accessed { url.stopAccessingSecurityScopedResource() } }
     do {
         let staged = try store.stageCopy(of: url)
         DispatchQueue.main.async {
-            session.applyStaged(staged, slot: slot)
+            onStaged(staged)
         }
     } catch {
         let message = error.localizedDescription
         DispatchQueue.main.async {
-            session.validation = message
+            onError(message)
         }
     }
 }
