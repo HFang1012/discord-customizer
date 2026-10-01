@@ -266,7 +266,7 @@ final class AppModel: ObservableObject {
         switch profile.timerMode {
         case .off:
             return .hidden
-        case .countUpFromApply:
+        case .none, .countUpFromApply:
             if isLive(profile.id), let start = countUpAnchors[profile.id] {
                 return .countUp(from: start)
             }

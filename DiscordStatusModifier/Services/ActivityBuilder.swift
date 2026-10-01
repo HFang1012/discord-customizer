@@ -77,6 +77,9 @@ enum ActivityBuilder {
             // An empty timestamps object is stored and still drawn, and JSON null is rejected.
             // An end time already in the past is a finished countdown, which the client does not render.
             return ["end": unixSeconds(Date().addingTimeInterval(-86_400))]
+        case .none:
+            // No timestamps field. Discord starts its own elapsed timer when the activity is set.
+            return nil
         case .countUpFromApply:
             guard let countUpStart else { return nil }
             return ["start": unixSeconds(countUpStart)]
@@ -259,7 +262,8 @@ enum ActivityConfirmation {
         let confirmedStart = integer(confirmedMap?["start"])
         let confirmedEnd = integer(confirmedMap?["end"])
         if sentStart == nil && sentEnd == nil {
-            return confirmedStart == nil && confirmedEnd == nil
+            // None sends no timestamps. Discord may attach its own start and still draw an elapsed timer.
+            return confirmedEnd == nil
         }
         // Off sends only an end time in the past so Discord draws no timer.
         // A start Discord attaches beside that end does not bring the timer back.

@@ -62,6 +62,7 @@ enum StatusDisplayType: Int, Codable, CaseIterable, Identifiable, Hashable {
 
 enum TimerMode: String, Codable, CaseIterable, Identifiable, Hashable {
     case off
+    case none
     case countUpFromApply
     case countUpFromStart
     case countDownDuration
@@ -74,6 +75,8 @@ enum TimerMode: String, Codable, CaseIterable, Identifiable, Hashable {
         switch self {
         case .off:
             return "Off"
+        case .none:
+            return "None"
         case .countUpFromApply:
             return "Count up from when applied"
         case .countUpFromStart:
@@ -284,7 +287,7 @@ struct StatusProfile: Codable, Equatable, Identifiable {
         }
 
         switch profile.timerMode {
-        case .off, .countUpFromApply:
+        case .off, .none, .countUpFromApply:
             break
         case .countUpFromStart:
             if profile.timerStart == nil {

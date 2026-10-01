@@ -20,7 +20,7 @@ To show that image on Discord, the app publishes it when you set the profile liv
 
 ## Profiles
 
-Profiles live in `~/Library/Application Support/DiscordStatusModifier/profiles.json`, with copied images under `artwork/`. Each card can set the activity type (Playing, Listening, Watching, or Competing), title, details, state, images, up to two buttons, a count-up, count-down, or custom timer, party size, and which line appears beside your name in the member list. Custom timer is typed on the card as remaining time, like 1:26:34, and Discord counts down from it. A new card defaults to Playing. Older cards saved as None are read as Playing.
+Profiles live in `~/Library/Application Support/DiscordStatusModifier/profiles.json`, with copied images under `artwork/`. Each card can set the activity type (Playing, Listening, Watching, or Competing), title, details, state, images, up to two buttons, a timer (off, none, count-up, count-down, or custom), party size, and which line appears beside your name in the member list. Off hides the timer. None sends no time, and Discord counts up on its own. Custom timer is typed on the card as remaining time, like 1:26:34, and Discord counts down from it. A new card defaults to Playing. Older cards saved as None are read as Playing.
 
 Discord shows buttons to other people, not on your own profile. The editor preview still shows them.
 

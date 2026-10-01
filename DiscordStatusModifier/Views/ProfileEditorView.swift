@@ -153,7 +153,7 @@ struct ProfileEditorView: View {
                 buttonFields(index: 1, title: "Second button")
             }
 
-            section("Timer", footnote: "Off shows no timer on Discord. Count up shows elapsed time. An end time counts down. Custom timer is typed on the card, like 1:26:34, and Discord counts down from it.") {
+            section("Timer", footnote: "Off shows no timer on Discord. None sends no time, and Discord counts up on its own. Count up shows elapsed time. An end time counts down. Custom timer is typed on the card, like 1:26:34, and Discord counts down from it.") {
                 Picker("Timer", selection: $session.draft.timerMode) {
                     ForEach(TimerMode.allCases) { mode in
                         Text(mode.label).tag(mode)
@@ -249,6 +249,10 @@ struct ProfileEditorView: View {
         switch session.draft.timerMode {
         case .off:
             EmptyView()
+        case .none:
+            Text("No time is sent. Discord counts up from the moment this profile is applied.")
+                .font(.system(size: 12))
+                .foregroundStyle(DiscordTheme.muted)
         case .countUpFromApply:
             Text("The timer starts when you click the profile, and keeps running if Discord reconnects.")
                 .font(.system(size: 12))
