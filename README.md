@@ -4,7 +4,7 @@ A native macOS app that sets a Discord “Playing” rich presence from a librar
 
 Discord Rich Presence only works while the Discord desktop app is running and signed in on the same Mac. If Discord quits or restarts, the app reconnects with backoff and puts the active profile back. Closing the window leaves a menu-bar item so the presence stays up. Quitting the app for real clears the activity.
 
-Requires macOS 14 or later. There are no third-party packages. No developer-portal setup is required: open the app with Discord desktop running and signed in, then pick a profile.
+Requires macOS 14 or later. There are no third-party packages. No developer-portal setup is required: open the app with Discord desktop running and signed in, then pick one or more profiles.
 
 ## Artwork
 
@@ -24,7 +24,7 @@ Profiles live in `~/Library/Application Support/DiscordStatusModifier/profiles.j
 
 Discord shows buttons to other people, not on your own profile. The editor preview still shows them.
 
-Click a card to send `SET_ACTIVITY` and mark it live. Click it again, or use Stop, to clear the status. While no card is selected, the app clears the Discord activity about once a second so a leftover status does not stay up. The last live profile is restored on the next launch and reapplied once Discord is connected.
+Click a card to send `SET_ACTIVITY` and mark it live. Click it again to remove just that card. Several cards can be live at once; Discord keeps one activity per application, and this app uses a separate application connection for each live card, up to five. Stop clears every live card. While no card is selected, the app clears Discord about once a second so a leftover status does not stay up. The live profiles are restored on the next launch and reapplied once Discord is connected.
 
 Download on a card saves that card as a `.dscard` file you can send to someone else. Upload (in the toolbar, or on the empty library) adds the file as a new card and does not replace one already on this Mac. The file includes the card text and any images stored on this Mac. An https image link is kept as a link and is not copied into the file. Discord’s uploaded-image cache stays on the Mac that published it; the other Mac publishes the image the next time that card is set live.
 

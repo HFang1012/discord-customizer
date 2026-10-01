@@ -9,16 +9,20 @@ struct MenuBarView: View {
         Button(model.connectionTitle) {}
             .disabled(true)
 
-        if let active = model.profiles.first(where: { $0.id == model.activeProfileID }) {
+        if model.activeProfileIDs.isEmpty {
+            Button("No status") {}
+                .disabled(true)
+        } else if model.activeProfileIDs.count == 1,
+                  let active = model.profiles.first(where: { $0.id == model.activeProfileIDs[0] }) {
             Button(active.listTitle) {}
                 .disabled(true)
         } else {
-            Button("No status") {}
+            Button("\(model.activeProfileIDs.count) statuses") {}
                 .disabled(true)
         }
 
         Button("Stop") { model.stop() }
-            .disabled(model.activeProfileID == nil)
+            .disabled(model.activeProfileIDs.isEmpty)
 
         Divider()
 
@@ -30,7 +34,7 @@ struct MenuBarView: View {
                 Button {
                     model.select(profile)
                 } label: {
-                    if model.activeProfileID == profile.id {
+                    if model.isLive(profile.id) {
                         Label(profile.listTitle, systemImage: "checkmark")
                     } else {
                         Text(profile.listTitle)

@@ -68,7 +68,7 @@ struct ProfileCardView: View {
             }
             .accessibilityAddTraits(isLive ? .isSelected : [])
             .accessibilityLabel("\(profile.activityType.label), \(profile.listTitle)")
-            .accessibilityHint(isLive ? "Stops this status" : "Sets this status live")
+            .accessibilityHint(isLive ? "Removes this status" : "Adds this status")
             .accessibilityAddTraits(.isButton)
     }
 

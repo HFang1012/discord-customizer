@@ -153,7 +153,7 @@ struct ProfileEditorView: View {
                 buttonFields(index: 1, title: "Second button")
             }
 
-            section("Timer", footnote: "Count up shows elapsed time. An end time counts down. Custom timer is typed on the card, like 1:26:34, and Discord counts down from it.") {
+            section("Timer", footnote: "Off shows no timer on Discord. Count up shows elapsed time. An end time counts down. Custom timer is typed on the card, like 1:26:34, and Discord counts down from it.") {
                 Picker("Timer", selection: $session.draft.timerMode) {
                     ForEach(TimerMode.allCases) { mode in
                         Text(mode.label).tag(mode)
@@ -215,7 +215,7 @@ struct ProfileEditorView: View {
                 profile: session.draft,
                 artwork: artwork,
                 timer: model.timerDisplay(for: session.draft, previewAnchor: session.openedAt),
-                isLive: model.activeProfileID == session.draft.id,
+                isLive: model.isLive(session.draft.id),
                 isPublishing: false,
                 publishingLabel: "",
                 statusNote: nil,

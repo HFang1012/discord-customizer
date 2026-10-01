@@ -33,10 +33,7 @@ enum ActivityBuilder {
             }
         }
 
-        // Omit timestamps when the timer is off. An empty object is stored by Discord
-        // and the client still draws a timer. JSON null is rejected.
-        if profile.timerMode != .off,
-           let timestamps = timestamps(profile: profile, countUpStart: countUpStart, countDownEnd: countDownEnd) {
+        if let timestamps = timestamps(profile: profile, countUpStart: countUpStart, countDownEnd: countDownEnd) {
             activity["timestamps"] = timestamps
         }
 
@@ -76,7 +73,10 @@ enum ActivityBuilder {
     ) -> [String: Int]? {
         switch profile.timerMode {
         case .off:
-            return nil
+            // Omitting timestamps makes Discord count up from when the activity was set.
+            // An empty timestamps object is stored and still drawn, and JSON null is rejected.
+            // An end time already in the past is a finished countdown, which the client does not render.
+            return ["end": unixSeconds(Date().addingTimeInterval(-86_400))]
         case .countUpFromApply:
             guard let countUpStart else { return nil }
             return ["start": unixSeconds(countUpStart)]
@@ -261,9 +261,19 @@ enum ActivityConfirmation {
         if sentStart == nil && sentEnd == nil {
             return confirmedStart == nil && confirmedEnd == nil
         }
+        // Off sends only an end time in the past so Discord draws no timer.
+        // A start Discord attaches beside that end does not bring the timer back.
+        if sentStart == nil, let sentEnd, isInThePast(sentEnd) {
+            guard let confirmedEnd else { return false }
+            return sameInstant(sentEnd, confirmedEnd)
+        }
         if !sameInstant(sentStart, confirmedStart) { return false }
         if !sameInstant(sentEnd, confirmedEnd) { return false }
         return true
+    }
+
+    private static func isInThePast(_ value: Int) -> Bool {
+        milliseconds(value) < Int(Date().timeIntervalSince1970 * 1000) - 500
     }
 
     private static func sameInstant(_ sent: Int?, _ confirmed: Int?) -> Bool {

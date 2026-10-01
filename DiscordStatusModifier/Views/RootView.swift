@@ -201,8 +201,8 @@ struct RootView: View {
                 model.stop()
             }
             .buttonStyle(.bordered)
-            .disabled(model.activeProfileID == nil)
-            .help("Clear the Discord status")
+            .disabled(model.activeProfileIDs.isEmpty)
+            .help("Clear every live status")
         }
     }
 
@@ -238,7 +238,7 @@ struct RootView: View {
             Text("No profiles yet")
                 .font(.system(size: 22, weight: .bold))
                 .foregroundStyle(.white)
-            Text("Create a card for what you’re doing — a project, a playlist, a match. Pick it when Discord is open and the status shows on your profile.")
+            Text("Create a card for what you’re doing — a project, a playlist, a match. Pick one or more when Discord is open and they show on your profile.")
                 .font(.system(size: 14))
                 .foregroundStyle(DiscordTheme.secondary)
                 .multilineTextAlignment(.center)
@@ -272,9 +272,9 @@ struct RootView: View {
                         profile: profile,
                         artwork: artwork,
                         timer: model.timerDisplay(for: profile, previewAnchor: nil),
-                        isLive: model.activeProfileID == profile.id,
-                        isPublishing: model.publishingProfileID == profile.id,
-                        publishingLabel: model.publishingLabel,
+                        isLive: model.isLive(profile.id),
+                        isPublishing: model.isPublishing(profile.id),
+                        publishingLabel: model.publishingLabel(for: profile.id),
                         statusNote: model.statusNote(for: profile),
                         showsMenu: true,
                         isInteractive: true,
