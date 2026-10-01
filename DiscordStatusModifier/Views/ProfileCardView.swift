@@ -13,6 +13,7 @@ struct ProfileCardView: View {
     var onSelect: () -> Void
     var onEdit: () -> Void
     var onDuplicate: () -> Void
+    var onDownload: () -> Void
     var onDelete: () -> Void
 
     var body: some View {
@@ -169,6 +170,7 @@ struct ProfileCardView: View {
         Menu {
             Button("Edit", action: onEdit)
             Button("Duplicate", action: onDuplicate)
+            Button("Download", action: onDownload)
             Divider()
             Button("Delete", role: .destructive, action: onDelete)
         } label: {
@@ -181,7 +183,7 @@ struct ProfileCardView: View {
         .menuStyle(.borderlessButton)
         .menuIndicator(.hidden)
         .fixedSize()
-        .help("Edit, duplicate, or delete")
+        .help("Edit, duplicate, download, or delete")
         .accessibilityLabel("Actions for \(profile.listTitle)")
     }
 }

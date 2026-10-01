@@ -15,14 +15,17 @@ To show that image on Discord, the app publishes it when you set the profile liv
 - A file is uploaded anonymously to a public host, starting with [catbox.moe](https://catbox.moe). If catbox refuses the upload (it currently rejects many anonymous clients with “Invalid uploader”), the app tries litterbox, then x0.at, then pixi.mg. The response is a public URL. Anyone with that link can view the file, including GIFs.
 - The app then registers the URL with Discord’s external-assets endpoint and sends the returned `mp:external/...` path as `large_image` or `small_image`.
 - If you paste an https image link instead of a file, the upload is skipped and only the external-assets call runs. If that call fails, the https URL itself is sent as the image field.
+- If the large image is left empty, the app sends a blank image. Discord would otherwise show this application's icon.
 
 ## Profiles
 
-Profiles live in `~/Library/Application Support/DiscordStatusModifier/profiles.json`, with copied images under `artwork/`. Each card can set the activity type (Playing, Listening, Watching, or Competing), title, details, state, images, up to two buttons, a count-up or count-down timer, party size, and which line appears beside your name in the member list.
+Profiles live in `~/Library/Application Support/DiscordStatusModifier/profiles.json`, with copied images under `artwork/`. Each card can set the activity type (None, Playing, Listening, Watching, or Competing), title, details, state, images, up to two buttons, a count-up or count-down timer, party size, and which line appears beside your name in the member list. None is the default on a new card. Setting that card live clears the activity, so Discord shows nothing.
 
 Discord shows buttons to other people, not on your own profile. The editor preview still shows them.
 
 Click a card to send `SET_ACTIVITY` and mark it live. Click it again, or use Stop, to clear the status. The last live profile is restored on the next launch and reapplied once Discord is connected.
+
+Download on a card saves that card as a `.dscard` file you can send to someone else. Upload (in the toolbar, or on the empty library) adds the file as a new card and does not replace one already on this Mac. The file includes the card text and any images stored on this Mac. An https image link is kept as a link and is not copied into the file. Discord’s uploaded-image cache stays on the Mac that published it; the other Mac publishes the image the next time that card is set live.
 
 ## Run it in Xcode
 

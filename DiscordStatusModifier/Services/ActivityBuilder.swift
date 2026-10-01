@@ -11,7 +11,7 @@ enum ActivityBuilder {
     ) -> [String: Any] {
         let name = formattedField(profile.titleSource, limit: ProfileLimits.title, fallback: "Untitled")
         var activity: [String: Any] = [
-            "type": profile.activityType.rawValue,
+            "type": profile.activityType.discordType ?? ActivityType.playing.rawValue,
             "name": name,
             "status_display_type": profile.statusDisplayType.rawValue,
             "instance": true
@@ -135,7 +135,11 @@ enum ActivityBuilder {
 
 /// Compares a SET_ACTIVITY payload with the activity Discord sends back.
 enum ActivityConfirmation {
-    static func problem(sent: [String: Any], confirmed: [String: Any]) -> String? {
+    static func problem(
+        sent: [String: Any],
+        confirmed: [String: Any],
+        ignoreMissingLargeImage: Bool = false
+    ) -> String? {
         var missed: [String] = []
         if !sameText(sent["name"], confirmed["name"]) {
             missed.append("title")
@@ -174,7 +178,12 @@ enum ActivityConfirmation {
             missed.append("small image link")
         }
         if !sameImagePresence(sentAssets?["large_image"], confirmedAssets?["large_image"]) {
-            missed.append("large image")
+            let blankWasDropped = ignoreMissingLargeImage
+                && text(sentAssets?["large_image"]) != nil
+                && text(confirmedAssets?["large_image"]) == nil
+            if !blankWasDropped {
+                missed.append("large image")
+            }
         }
         if !sameImagePresence(sentAssets?["small_image"], confirmedAssets?["small_image"]) {
             missed.append("small image")

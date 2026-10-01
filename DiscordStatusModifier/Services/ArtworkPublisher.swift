@@ -1,3 +1,4 @@
+import AppKit
 import Foundation
 
 enum ArtworkError: LocalizedError {
@@ -335,5 +336,32 @@ struct ArtworkPublisher {
                 return ArtworkPublisher.piximgURL(in: body)
             }
         }
+    }
+}
+
+/// Transparent artwork sent when a profile has no large image.
+///
+/// Discord otherwise draws the application icon in that slot.
+enum BlankImage {
+    static func pngData() -> Data {
+        let side = 512
+        guard let rep = NSBitmapImageRep(
+            bitmapDataPlanes: nil,
+            pixelsWide: side,
+            pixelsHigh: side,
+            bitsPerSample: 8,
+            samplesPerPixel: 4,
+            hasAlpha: true,
+            isPlanar: false,
+            colorSpaceName: .deviceRGB,
+            bytesPerRow: side * 4,
+            bitsPerPixel: 32
+        ) else {
+            return Data()
+        }
+        if let pixels = rep.bitmapData {
+            pixels.initialize(repeating: 0, count: side * side * 4)
+        }
+        return rep.representation(using: .png, properties: [:]) ?? Data()
     }
 }

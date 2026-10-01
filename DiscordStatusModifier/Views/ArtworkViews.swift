@@ -51,9 +51,7 @@ struct ArtworkImage: View {
     }
 
     private var placeholder: some View {
-        Image(systemName: "photo")
-            .font(.system(size: 18, weight: .semibold))
-            .foregroundStyle(DiscordTheme.muted)
+        Color.clear
             .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 

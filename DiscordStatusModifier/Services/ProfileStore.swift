@@ -77,6 +77,24 @@ final class ProfileStore {
         }
     }
 
+    /// Stable transparent PNG used when a profile has no large image.
+    func blankArtworkURL() throws -> URL {
+        let url = artworkDirectory.appendingPathComponent("blank.png")
+        if FileManager.default.fileExists(atPath: url.path) {
+            return url
+        }
+        let data = BlankImage.pngData()
+        guard !data.isEmpty else {
+            throw StoreError.writeFailed("Couldn’t build the blank image.")
+        }
+        do {
+            try data.write(to: url, options: .atomic)
+        } catch {
+            throw StoreError.writeFailed(error.localizedDescription)
+        }
+        return url
+    }
+
     func artworkURL(filename: String?) -> URL? {
         guard let filename, !filename.isEmpty else { return nil }
         let url = artworkDirectory.appendingPathComponent(filename)
@@ -124,6 +142,39 @@ final class ProfileStore {
     func deleteArtwork(filename: String?) {
         guard let url = artworkURL(filename: filename) else { return }
         try? FileManager.default.removeItem(at: url)
+    }
+
+    /// Reads a stored artwork file for a shareable card. A missing filename means this slot has no local image.
+    func readArtwork(filename: String?) throws -> (data: Data, fileExtension: String)? {
+        guard let filename, !filename.isEmpty else { return nil }
+        guard let url = artworkURL(filename: filename) else {
+            throw ArtworkError.missingFile
+        }
+        let data: Data
+        do {
+            data = try Data(contentsOf: url)
+        } catch {
+            throw ArtworkError.unreadable
+        }
+        try validateArtworkData(data)
+        return (data, try normalizedExtension(url.pathExtension))
+    }
+
+    /// Copies imported artwork into this Mac’s artwork folder and returns the stored filename.
+    func storeArtwork(data: Data, fileExtension: String, profileID: UUID, slot: ArtworkSlot) throws -> String {
+        try validateArtworkData(data)
+        let ext = try normalizedExtension(fileExtension)
+        let filename = "\(profileID.uuidString)-\(slot.rawValue).\(ext)"
+        let destination = artworkDirectory.appendingPathComponent(filename)
+        if FileManager.default.fileExists(atPath: destination.path) {
+            try FileManager.default.removeItem(at: destination)
+        }
+        do {
+            try data.write(to: destination, options: .atomic)
+        } catch {
+            throw StoreError.writeFailed(error.localizedDescription)
+        }
+        return filename
     }
 
     func discard(_ url: URL?) {
@@ -177,13 +228,27 @@ final class ProfileStore {
     }
 
     private func validatedExtension(for url: URL) throws -> String {
-        let ext = url.pathExtension.lowercased()
+        try normalizedExtension(url.pathExtension)
+    }
+
+    private func normalizedExtension(_ raw: String) throws -> String {
+        let ext = raw.lowercased()
         guard Self.allowedExtensions.contains(ext) else {
             throw StoreError.unsupportedImage
         }
         return ext == "jpeg" ? "jpg" : ext
     }
 
+    private func validateArtworkData(_ data: Data) throws {
+        if data.isEmpty {
+            throw StoreError.unreadableImage
+        }
+        if data.count > Self.maxArtworkBytes {
+            throw ArtworkError.tooLarge
+        }
+    }
+
+    private static let maxArtworkBytes = 50 * 1024 * 1024
     private static let allowedExtensions: Set<String> = ["png", "jpg", "jpeg", "webp", "gif"]
 
     private static func encoder() -> JSONEncoder {

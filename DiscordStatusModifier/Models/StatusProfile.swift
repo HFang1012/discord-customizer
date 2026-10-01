@@ -15,6 +15,8 @@ private func profileValidationFailure(_ message: String) -> Result<StatusProfile
 }
 
 enum ActivityType: Int, Codable, CaseIterable, Identifiable, Hashable {
+    /// Clears the Discord activity so the profile shows nothing.
+    case none = -1
     case playing = 0
     case listening = 2
     case watching = 3
@@ -24,11 +26,17 @@ enum ActivityType: Int, Codable, CaseIterable, Identifiable, Hashable {
 
     var label: String {
         switch self {
+        case .none: return "None"
         case .playing: return "Playing"
         case .listening: return "Listening"
         case .watching: return "Watching"
         case .competing: return "Competing"
         }
+    }
+
+    /// Value Discord accepts on SET_ACTIVITY. None is applied by clearing the activity.
+    var discordType: Int? {
+        self == .none ? nil : rawValue
     }
 }
 
@@ -145,7 +153,7 @@ struct StatusProfile: Codable, Equatable, Identifiable {
         return StatusProfile(
             id: UUID(),
             title: "",
-            activityType: .playing,
+            activityType: .none,
             details: "",
             state: "",
             detailsURL: "",

@@ -85,6 +85,19 @@ final class EditorSession: ObservableObject, Identifiable {
     }
 }
 
+struct StatusBanner: Equatable {
+    var message: String
+    var isSuccess: Bool
+
+    static func error(_ message: String) -> StatusBanner {
+        StatusBanner(message: message, isSuccess: false)
+    }
+
+    static func success(_ message: String) -> StatusBanner {
+        StatusBanner(message: message, isSuccess: true)
+    }
+}
+
 @MainActor
 final class AppModel: ObservableObject {
     static var shared: AppModel?
@@ -92,7 +105,7 @@ final class AppModel: ObservableObject {
     @Published var profiles: [StatusProfile] = []
     @Published var activeProfileID: UUID?
     @Published var connection: ConnectionPhase = .searching
-    @Published var banner: String?
+    @Published var banner: StatusBanner?
     @Published var publishingProfileID: UUID?
     @Published var publishingLabel = "Setting status…"
     @Published var editor: EditorSession?
@@ -114,6 +127,9 @@ final class AppModel: ObservableObject {
     private enum Keys {
         static let activeProfileID = "activeProfileID"
         static let legacyApplicationID = "discordApplicationID"
+        static let blankFingerprint = "blankImageFingerprint"
+        static let blankPublicURL = "blankImagePublicURL"
+        static let blankAssetKey = "blankImageAssetKey"
     }
 
     init() {
@@ -121,7 +137,7 @@ final class AppModel: ObservableObject {
         ipc = DiscordIPCClient()
         profiles = store.load()
         if let warning = store.loadWarning {
-            banner = warning
+            banner = .error(warning)
         }
         defaults.removeObject(forKey: Keys.legacyApplicationID)
         if let raw = defaults.string(forKey: Keys.activeProfileID),
@@ -367,8 +383,28 @@ final class AppModel: ObservableObject {
                     return
                 }
                 if error is CancellationError { return }
-                banner = error.localizedDescription
+                banner = .error(error.localizedDescription)
             }
+        }
+    }
+
+    func downloadFile(for profile: StatusProfile) throws -> (data: Data, filename: String) {
+        try ProfileTransfer.exportFile(for: profile, store: store)
+    }
+
+    func uploadCard(from url: URL) {
+        let accessed = url.startAccessingSecurityScopedResource()
+        defer { if accessed { url.stopAccessingSecurityScopedResource() } }
+        do {
+            let data = try Data(contentsOf: url)
+            let profile = try ProfileTransfer.importProfile(from: data, store: store)
+            profiles.insert(profile, at: 0)
+            banner = .success("Added “\(profile.listTitle)”.")
+            persistProfiles()
+            schedulePreview(profile.largeImageRemoteURL)
+            schedulePreview(profile.smallImageRemoteURL)
+        } catch {
+            banner = .error(error.localizedDescription)
         }
     }
 
@@ -438,7 +474,7 @@ final class AppModel: ObservableObject {
             didApplyThisConnection = false
             connection = .waiting(message)
         case .activityError(let message):
-            banner = message
+            banner = .error(message)
         }
     }
 
@@ -475,17 +511,23 @@ final class AppModel: ObservableObject {
         }
         guard case .connected = connection else {
             if source == .user {
-                banner = "Open Discord and sign in on this Mac. “\(profile.listTitle)” will apply when Discord is connected."
+                banner = .error("Open Discord and sign in on this Mac. “\(profile.listTitle)” will apply when Discord is connected.")
             }
             return
         }
 
-        let needsArtwork = profile.largeImageFilename != nil
+        let isNone = profile.activityType == .none
+        let hasUserLarge = profile.largeImageFilename != nil
             || !profile.largeImageRemoteURL.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        let needsArtwork = !isNone && (
+            hasUserLarge
             || profile.smallImageFilename != nil
             || !profile.smallImageRemoteURL.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        )
+        let blankReady = defaults.string(forKey: Keys.blankPublicURL)?.hasPrefix("https://") == true
+        let needsBlankUpload = !isNone && !hasUserLarge && !blankReady
         publishingProfileID = profileID
-        publishingLabel = needsArtwork ? "Uploading artwork…" : "Setting status…"
+        publishingLabel = isNone ? "Clearing status…" : ((needsArtwork || needsBlankUpload) ? "Uploading artwork…" : "Setting status…")
         defer {
             if publishingProfileID == profileID {
                 publishingProfileID = nil
@@ -493,6 +535,13 @@ final class AppModel: ObservableObject {
         }
 
         do {
+            if isNone {
+                try await ipc.clearActivity()
+                guard generation == sendGeneration, !Task.isCancelled else { return }
+                didApplyThisConnection = true
+                banner = nil
+                return
+            }
             let large = try await imageKey(for: profile, slot: .large)
             guard generation == sendGeneration, !Task.isCancelled else { return }
             let latestForSmall = profiles.first(where: { $0.id == profileID }) ?? profile
@@ -514,6 +563,8 @@ final class AppModel: ObservableObject {
                 try await ipc.clearActivity()
                 guard generation == sendGeneration, !Task.isCancelled else { return }
             }
+            let sentBlankLarge = current.largeImageFilename == nil
+                && LinkValidation.httpsURL(current.largeImageRemoteURL) == nil
             var confirmed = try await ipc.setActivity(activity)
             guard generation == sendGeneration else {
                 if activeProfileID == nil {
@@ -521,7 +572,7 @@ final class AppModel: ObservableObject {
                 }
                 return
             }
-            if ActivityConfirmation.problem(sent: activity, confirmed: confirmed) != nil {
+            if ActivityConfirmation.problem(sent: activity, confirmed: confirmed, ignoreMissingLargeImage: sentBlankLarge) != nil {
                 confirmed = try await ipc.setActivity(activity)
                 guard generation == sendGeneration else {
                     if activeProfileID == nil {
@@ -529,8 +580,8 @@ final class AppModel: ObservableObject {
                     }
                     return
                 }
-                if let still = ActivityConfirmation.problem(sent: activity, confirmed: confirmed) {
-                    banner = still
+                if let still = ActivityConfirmation.problem(sent: activity, confirmed: confirmed, ignoreMissingLargeImage: sentBlankLarge) {
+                    banner = .error(still)
                     didApplyThisConnection = false
                     return
                 }
@@ -541,7 +592,7 @@ final class AppModel: ObservableObject {
             return
         } catch {
             guard generation == sendGeneration else { return }
-            banner = error.localizedDescription
+            banner = .error(error.localizedDescription)
             let rejected: Bool
             if let ipcError = error as? IPCError, case .discord = ipcError {
                 rejected = true
@@ -583,7 +634,30 @@ final class AppModel: ObservableObject {
             remember(published, profileID: profile.id, slot: slot)
             return published.assetKey
         }
+        // Discord draws the application icon when large_image is omitted. Send a blank image instead.
+        if slot == .large {
+            return try await blankImageKey()
+        }
         return nil
+    }
+
+    private func blankImageKey() async throws -> String {
+        let url = try store.blankArtworkURL()
+        let fingerprint = ArtworkPublisher.fileFingerprint(url: url) ?? url.path
+        let cache: PublishedArtwork?
+        if defaults.string(forKey: Keys.blankFingerprint) == fingerprint,
+           let publicURL = defaults.string(forKey: Keys.blankPublicURL),
+           let assetKey = defaults.string(forKey: Keys.blankAssetKey),
+           publicURL.hasPrefix("https://"), !assetKey.isEmpty {
+            cache = PublishedArtwork(fingerprint: fingerprint, publicURL: publicURL, assetKey: assetKey)
+        } else {
+            cache = nil
+        }
+        let published = try await publisher.publish(source: .file(url), cache: cache)
+        defaults.set(published.fingerprint, forKey: Keys.blankFingerprint)
+        defaults.set(published.publicURL, forKey: Keys.blankPublicURL)
+        defaults.set(published.assetKey, forKey: Keys.blankAssetKey)
+        return published.assetKey
     }
 
     private func storedCache(profile: StatusProfile, slot: ArtworkSlot) -> PublishedArtwork? {
@@ -734,7 +808,7 @@ final class AppModel: ObservableObject {
         do {
             try store.save(profiles)
         } catch {
-            banner = error.localizedDescription
+            banner = .error(error.localizedDescription)
         }
     }
 

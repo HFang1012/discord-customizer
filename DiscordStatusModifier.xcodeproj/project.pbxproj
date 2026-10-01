@@ -23,6 +23,7 @@
 		5D1A0000000000000000004E /* ArtworkViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5D1A0000000000000000002E /* ArtworkViews.swift */; };
 		5D1A0000000000000000004F /* DiscordTheme.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5D1A0000000000000000002F /* DiscordTheme.swift */; };
 		5D1A00000000000000000052 /* DiscordFormatting.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5D1A00000000000000000033 /* DiscordFormatting.swift */; };
+		5D1A00000000000000000053 /* ProfileTransfer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5D1A00000000000000000034 /* ProfileTransfer.swift */; };
 		5D1A00000000000000000050 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 5D1A00000000000000000030 /* Assets.xcassets */; };
 /* End PBXBuildFile section */
 
@@ -44,6 +45,8 @@
 		5D1A0000000000000000002E /* ArtworkViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ArtworkViews.swift; sourceTree = "<group>"; };
 		5D1A0000000000000000002F /* DiscordTheme.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DiscordTheme.swift; sourceTree = "<group>"; };
 		5D1A00000000000000000033 /* DiscordFormatting.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DiscordFormatting.swift; sourceTree = "<group>"; };
+		5D1A00000000000000000034 /* ProfileTransfer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProfileTransfer.swift; sourceTree = "<group>"; };
+		5D1A00000000000000000035 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		5D1A00000000000000000030 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
@@ -78,6 +81,7 @@
 				5D1A0000000000000000000C /* Views */,
 				5D1A0000000000000000000D /* Theme */,
 				5D1A00000000000000000030 /* Assets.xcassets */,
+				5D1A00000000000000000035 /* Info.plist */,
 			);
 			path = DiscordStatusModifier;
 			sourceTree = "<group>";
@@ -113,6 +117,7 @@
 				5D1A00000000000000000026 /* ProfileStore.swift */,
 				5D1A00000000000000000027 /* ArtworkPublisher.swift */,
 				5D1A00000000000000000028 /* ActivityBuilder.swift */,
+				5D1A00000000000000000034 /* ProfileTransfer.swift */,
 			);
 			path = Services;
 			sourceTree = "<group>";
@@ -231,6 +236,7 @@
 				5D1A0000000000000000004E /* ArtworkViews.swift in Sources */,
 				5D1A0000000000000000004F /* DiscordTheme.swift in Sources */,
 				5D1A00000000000000000052 /* DiscordFormatting.swift in Sources */,
+				5D1A00000000000000000053 /* ProfileTransfer.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -357,6 +363,7 @@
 				ENABLE_HARDENED_RUNTIME = NO;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = DiscordStatusModifier/Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = "Discord Status Modifier";
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.utilities";
 				LD_RUNPATH_SEARCH_PATHS = (
@@ -387,6 +394,7 @@
 				ENABLE_HARDENED_RUNTIME = NO;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = DiscordStatusModifier/Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = "Discord Status Modifier";
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.utilities";
 				LD_RUNPATH_SEARCH_PATHS = (

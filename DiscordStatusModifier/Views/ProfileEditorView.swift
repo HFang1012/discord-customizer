@@ -87,6 +87,10 @@ struct ProfileEditorView: View {
                     }
                     .pickerStyle(.segmented)
                     .labelsHidden()
+                    Text("None clears the activity, so Discord shows nothing. The other types set the word above the title.")
+                        .font(.system(size: 12))
+                        .foregroundStyle(DiscordTheme.muted)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
                 LimitedField(title: "Details", prompt: "Chapter 4, problem set", text: $session.draft.details, limit: ProfileLimits.line)
                 LimitedField(title: "Details link", prompt: "https://", text: $session.draft.detailsURL, limit: ProfileLimits.url)
@@ -110,7 +114,7 @@ struct ProfileEditorView: View {
                 }
             }
 
-            section("Artwork", footnote: "Uploaded artwork is posted to a public host so Discord can fetch it, including GIFs. Anyone with the link can open the file. A pasted https link skips the upload and is sent to Discord directly. Nothing is uploaded until this profile is set live.") {
+            section("Artwork", footnote: "Uploaded artwork is posted to a public host so Discord can fetch it, including GIFs. Anyone with the link can open the file. A pasted https link skips the upload and is sent to Discord directly. Nothing is uploaded until this profile is set live. An empty large image is sent as a blank image, so Discord does not fill in the application icon.") {
                 imageWell(
                     title: "Large image",
                     slot: .large,
@@ -210,6 +214,7 @@ struct ProfileEditorView: View {
                 onSelect: {},
                 onEdit: {},
                 onDuplicate: {},
+                onDownload: {},
                 onDelete: {}
             )
             .id(model.previewRevision)

@@ -1,9 +1,14 @@
 import AppKit
 import SwiftUI
+import UniformTypeIdentifiers
 
 struct RootView: View {
     @EnvironmentObject private var model: AppModel
     @Environment(\.openWindow) private var openWindow
+    @State private var importerPresented = false
+    @State private var exporterPresented = false
+    @State private var exportDocument: ActivityCardDocument?
+    @State private var exportFilename = "profile"
 
     var body: some View {
         NavigationStack {
@@ -26,6 +31,14 @@ struct RootView: View {
             .toolbar {
                 ToolbarItem(placement: .primaryAction) {
                     Button {
+                        importerPresented = true
+                    } label: {
+                        Label("Upload", systemImage: "square.and.arrow.up")
+                    }
+                    .help("Upload a profile")
+                }
+                ToolbarItem(placement: .primaryAction) {
+                    Button {
                         model.beginNewProfile()
                     } label: {
                         Label("New profile", systemImage: "plus")
@@ -40,9 +53,9 @@ struct RootView: View {
         .tint(DiscordTheme.accent)
         .frame(minWidth: 560, minHeight: 520)
         .overlay(alignment: .bottomTrailing) {
-            Text("credit: hucklberi & automagicle")
-                .font(.system(size: 11))
-                .foregroundStyle(DiscordTheme.muted)
+            Text("HF_ang · an idea by automagicle")
+                .font(.system(size: 9))
+                .foregroundStyle(DiscordTheme.muted.opacity(0.4))
                 .padding(.trailing, 16)
                 .padding(.bottom, 10)
                 .allowsHitTesting(false)
@@ -51,6 +64,36 @@ struct RootView: View {
         .sheet(item: $model.editor) { session in
             ProfileEditorView(session: session)
                 .environmentObject(model)
+        }
+        .fileImporter(
+            isPresented: $importerPresented,
+            allowedContentTypes: [.discordStatusCard, .json],
+            allowsMultipleSelection: false
+        ) { result in
+            switch result {
+            case .failure(let error):
+                if !isCancellation(error) {
+                    model.banner = .error(error.localizedDescription)
+                }
+            case .success(let urls):
+                guard let url = urls.first else { return }
+                model.uploadCard(from: url)
+            }
+        }
+        .fileExporter(
+            isPresented: $exporterPresented,
+            document: exportDocument,
+            contentType: .discordStatusCard,
+            defaultFilename: exportFilename
+        ) { result in
+            switch result {
+            case .success(let url):
+                model.banner = .success("Saved “\(url.lastPathComponent)”.")
+            case .failure(let error):
+                if !isCancellation(error) {
+                    model.banner = .error(error.localizedDescription)
+                }
+            }
         }
         .confirmationDialog(
             "Delete this profile?",
@@ -163,11 +206,11 @@ struct RootView: View {
         }
     }
 
-    private func bannerView(_ message: String) -> some View {
+    private func bannerView(_ banner: StatusBanner) -> some View {
         HStack(alignment: .top, spacing: 10) {
-            Image(systemName: "exclamationmark.triangle.fill")
-                .foregroundStyle(DiscordTheme.danger)
-            Text(message)
+            Image(systemName: banner.isSuccess ? "checkmark.circle.fill" : "exclamationmark.triangle.fill")
+                .foregroundStyle(banner.isSuccess ? DiscordTheme.timer : DiscordTheme.danger)
+            Text(banner.message)
                 .font(.system(size: 13))
                 .foregroundStyle(.white)
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -183,7 +226,7 @@ struct RootView: View {
         }
         .padding(12)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(DiscordTheme.dangerFill)
+        .background(banner.isSuccess ? DiscordTheme.timer.opacity(0.18) : DiscordTheme.dangerFill)
         .accessibilityElement(children: .combine)
     }
 
@@ -200,11 +243,17 @@ struct RootView: View {
                 .foregroundStyle(DiscordTheme.secondary)
                 .multilineTextAlignment(.center)
                 .frame(maxWidth: 440)
-            Button("New profile") {
-                model.beginNewProfile()
+            HStack(spacing: 8) {
+                Button("New profile") {
+                    model.beginNewProfile()
+                }
+                .buttonStyle(.borderedProminent)
+                .tint(DiscordTheme.accent)
+                Button("Upload profile") {
+                    importerPresented = true
+                }
+                .buttonStyle(.bordered)
             }
-            .buttonStyle(.borderedProminent)
-            .tint(DiscordTheme.accent)
         }
         .padding(32)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -231,6 +280,7 @@ struct RootView: View {
                         onSelect: { model.select(profile) },
                         onEdit: { model.beginEdit(profile) },
                         onDuplicate: { model.duplicate(profile) },
+                        onDownload: { download(profile) },
                         onDelete: { model.pendingDelete = profile }
                     )
                     .id("\(profile.id.uuidString)-\(revision)")
@@ -239,5 +289,43 @@ struct RootView: View {
             .padding(20)
         }
         .scrollContentBackground(.hidden)
+    }
+
+    private func download(_ profile: StatusProfile) {
+        do {
+            let file = try model.downloadFile(for: profile)
+            exportDocument = ActivityCardDocument(data: file.data)
+            exportFilename = file.filename
+            exporterPresented = true
+        } catch {
+            model.banner = .error(error.localizedDescription)
+        }
+    }
+
+    private func isCancellation(_ error: Error) -> Bool {
+        if error is CancellationError { return true }
+        let ns = error as NSError
+        return ns.domain == NSCocoaErrorDomain && ns.code == NSUserCancelledError
+    }
+}
+
+struct ActivityCardDocument: FileDocument {
+    static var readableContentTypes: [UTType] { [.discordStatusCard] }
+
+    var data: Data
+
+    init(data: Data) {
+        self.data = data
+    }
+
+    init(configuration: ReadConfiguration) throws {
+        guard let contents = configuration.file.regularFileContents else {
+            throw ProfileTransferError.unreadable
+        }
+        self.data = contents
+    }
+
+    func fileWrapper(configuration: WriteConfiguration) throws -> FileWrapper {
+        FileWrapper(regularFileWithContents: data)
     }
 }
