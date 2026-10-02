@@ -70,9 +70,8 @@ enum StatusDisplayType: Int, Codable, CaseIterable, Identifiable, Hashable {
     }
 }
 
-enum TimerMode: String, Codable, CaseIterable, Identifiable, Hashable {
+enum TimerMode: String, CaseIterable, Identifiable, Hashable {
     case off
-    case none
     case countUpFromApply
     case countUpFromStart
     case countDownDuration
@@ -85,8 +84,6 @@ enum TimerMode: String, Codable, CaseIterable, Identifiable, Hashable {
         switch self {
         case .off:
             return "Off"
-        case .none:
-            return "None"
         case .countUpFromApply:
             return "Count up from when applied"
         case .countUpFromStart:
@@ -98,6 +95,24 @@ enum TimerMode: String, Codable, CaseIterable, Identifiable, Hashable {
         case .custom:
             return "Custom timer"
         }
+    }
+}
+
+extension TimerMode: Codable {
+    init(from decoder: Decoder) throws {
+        let raw = try decoder.singleValueContainer().decode(String.self)
+        switch raw {
+        case "none":
+            // Older saves had a None mode that sent no time, so Discord counted up from when it was applied.
+            self = .countUpFromApply
+        default:
+            self = TimerMode(rawValue: raw) ?? .off
+        }
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.singleValueContainer()
+        try container.encode(rawValue)
     }
 }
 
@@ -174,6 +189,15 @@ struct StatusProfile: Codable, Equatable, Identifiable {
 
     var customDuration: TimeInterval {
         TimeInterval(customHoursValue * 3600 + customMinutesValue * 60 + customSecondsValue)
+    }
+
+    /// Whether editing kept the timer as it was, so a live count up or countdown can keep running.
+    func hasSameTimer(as other: StatusProfile) -> Bool {
+        timerMode == other.timerMode
+            && timerStart == other.timerStart
+            && timerEnd == other.timerEnd
+            && countdownDuration == other.countdownDuration
+            && customDuration == other.customDuration
     }
 
     var visibleButtons: [ProfileButton] {
@@ -297,7 +321,7 @@ struct StatusProfile: Codable, Equatable, Identifiable {
         }
 
         switch profile.timerMode {
-        case .off, .none, .countUpFromApply:
+        case .off, .countUpFromApply:
             break
         case .countUpFromStart:
             if profile.timerStart == nil {
@@ -308,8 +332,11 @@ struct StatusProfile: Codable, Equatable, Identifiable {
                 return profileValidationFailure("Set a countdown of at least one second.")
             }
         case .countDownUntil:
-            if profile.timerEnd == nil {
+            guard let end = profile.timerEnd else {
                 return profileValidationFailure("Choose the time the countdown should reach.")
+            }
+            if end <= Date() {
+                return profileValidationFailure("Choose a countdown end time in the future. Discord shows no timer once the end time has passed.")
             }
         case .custom:
             profile.customHours = profile.customHoursValue

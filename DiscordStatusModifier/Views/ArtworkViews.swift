@@ -170,26 +170,26 @@ struct PresenceTimer: View {
         case .hidden:
             EmptyView()
         case .fixed(let interval):
-            label(ClockFormat.string(from: interval))
+            label(ClockFormat.string(from: interval), spoken: "Timer")
         case .countUp(let start):
             TimelineView(.periodic(from: .now, by: 1)) { context in
-                label(ClockFormat.string(from: context.date.timeIntervalSince(start)))
+                label(ClockFormat.string(from: context.date.timeIntervalSince(start)), spoken: "Elapsed")
             }
         case .countDown(let end):
             TimelineView(.periodic(from: .now, by: 1)) { context in
-                label(ClockFormat.string(from: end.timeIntervalSince(context.date)))
+                label(ClockFormat.string(from: end.timeIntervalSince(context.date)), spoken: "Remaining")
             }
         }
     }
 
-    private func label(_ text: String) -> some View {
+    private func label(_ text: String, spoken: String) -> some View {
         HStack(spacing: 6) {
             Image(systemName: activityType.timerSymbol)
             Text(text)
         }
         .font(.system(size: 13, weight: .semibold).monospacedDigit())
         .foregroundStyle(DiscordTheme.timer)
-        .accessibilityLabel("Elapsed \(text)")
+        .accessibilityLabel("\(spoken) \(text)")
     }
 }
 

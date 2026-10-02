@@ -264,7 +264,7 @@ final class AppModel: ObservableObject {
 
     func timerDisplay(for profile: StatusProfile, previewAnchor: Date?) -> TimerDisplay {
         switch profile.timerMode {
-        case .off, .none:
+        case .off:
             return .hidden
         case .countUpFromApply:
             if isLive(profile.id), let start = countUpAnchors[profile.id] {
@@ -347,6 +347,7 @@ final class AppModel: ObservableObject {
         case .failure(let error):
             session.validation = error.localizedDescription
         case .success(var profile):
+            let previous = profiles.first(where: { $0.id == profile.id })
             do {
                 try applyArtworkSlot(
                     staged: session.largeStaged,
@@ -381,7 +382,9 @@ final class AppModel: ObservableObject {
                 schedulePreview(profile.largeImageRemoteURL)
                 schedulePreview(profile.smallImageRemoteURL)
                 if isLive(profile.id) {
-                    resetAnchors(for: profile)
+                    if previous.map({ !$0.hasSameTimer(as: profile) }) ?? true {
+                        resetAnchors(for: profile)
+                    }
                     if let slot = slotForProfile[profile.id] {
                         appliedSlots.remove(slot)
                     }
