@@ -21,6 +21,7 @@
 		5D1A00000000000000000051 /* DiscordClientConfiguration.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5D1A00000000000000000031 /* DiscordClientConfiguration.swift */; };
 		5D1A0000000000000000004D /* MenuBarView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5D1A0000000000000000002D /* MenuBarView.swift */; };
 		5D1A0000000000000000004E /* ArtworkViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5D1A0000000000000000002E /* ArtworkViews.swift */; };
+		5D1A00000000000000000F01 /* TimerEditorViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5D1A00000000000000000F02 /* TimerEditorViews.swift */; };
 		5D1A0000000000000000004F /* DiscordTheme.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5D1A0000000000000000002F /* DiscordTheme.swift */; };
 		5D1A00000000000000000052 /* DiscordFormatting.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5D1A00000000000000000033 /* DiscordFormatting.swift */; };
 		5D1A00000000000000000053 /* ProfileTransfer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5D1A00000000000000000034 /* ProfileTransfer.swift */; };
@@ -43,6 +44,7 @@
 		5D1A00000000000000000031 /* DiscordClientConfiguration.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DiscordClientConfiguration.swift; sourceTree = "<group>"; };
 		5D1A0000000000000000002D /* MenuBarView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MenuBarView.swift; sourceTree = "<group>"; };
 		5D1A0000000000000000002E /* ArtworkViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ArtworkViews.swift; sourceTree = "<group>"; };
+		5D1A00000000000000000F02 /* TimerEditorViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TimerEditorViews.swift; sourceTree = "<group>"; };
 		5D1A0000000000000000002F /* DiscordTheme.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DiscordTheme.swift; sourceTree = "<group>"; };
 		5D1A00000000000000000033 /* DiscordFormatting.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DiscordFormatting.swift; sourceTree = "<group>"; };
 		5D1A00000000000000000034 /* ProfileTransfer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProfileTransfer.swift; sourceTree = "<group>"; };
@@ -130,6 +132,7 @@
 				5D1A0000000000000000002B /* ProfileEditorView.swift */,
 				5D1A0000000000000000002D /* MenuBarView.swift */,
 				5D1A0000000000000000002E /* ArtworkViews.swift */,
+				5D1A00000000000000000F02 /* TimerEditorViews.swift */,
 			);
 			path = Views;
 			sourceTree = "<group>";
@@ -234,6 +237,7 @@
 				5D1A00000000000000000051 /* DiscordClientConfiguration.swift in Sources */,
 				5D1A0000000000000000004D /* MenuBarView.swift in Sources */,
 				5D1A0000000000000000004E /* ArtworkViews.swift in Sources */,
+				5D1A00000000000000000F01 /* TimerEditorViews.swift in Sources */,
 				5D1A0000000000000000004F /* DiscordTheme.swift in Sources */,
 				5D1A00000000000000000052 /* DiscordFormatting.swift in Sources */,
 				5D1A00000000000000000053 /* ProfileTransfer.swift in Sources */,

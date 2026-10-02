@@ -153,49 +153,6 @@ struct ProfileEditorView: View {
                 buttonFields(index: 1, title: "Second button")
             }
 
-            section("Timer", footnote: "Off shows no timer on Discord. Count up shows elapsed time. An end time counts down. Custom timer is typed on the card, like 1:26:34, and Discord counts down from it.") {
-                Picker("Timer", selection: $session.draft.timerMode) {
-                    ForEach(TimerMode.allCases) { mode in
-                        Text(mode.label).tag(mode)
-                    }
-                }
-                .labelsHidden()
-                timerControls
-            }
-            .onChange(of: session.draft.timerMode) { _, mode in
-                if mode == .countUpFromStart, session.draft.timerStart == nil {
-                    session.draft.timerStart = Date()
-                }
-                if mode == .countDownUntil, session.draft.timerEnd == nil {
-                    session.draft.timerEnd = Date().addingTimeInterval(3600)
-                }
-            }
-
-            section("Party", footnote: "Optional. Discord shows the current size and the max, for example 1 of 4.") {
-                Toggle("Show party size", isOn: $session.partyEnabled)
-                    .toggleStyle(.switch)
-                if session.partyEnabled {
-                    Stepper(value: $session.partyCurrent, in: 1...999) {
-                        Text("Current: \(session.partyCurrent)")
-                            .foregroundStyle(.white)
-                    }
-                    Stepper(value: $session.partyMax, in: 1...999) {
-                        Text("Max: \(session.partyMax)")
-                            .foregroundStyle(.white)
-                    }
-                    .onChange(of: session.partyCurrent) { _, value in
-                        if session.partyMax < value {
-                            session.partyMax = value
-                        }
-                    }
-                    .onChange(of: session.partyMax) { _, value in
-                        if session.partyCurrent > value {
-                            session.partyCurrent = value
-                        }
-                    }
-                }
-            }
-
             if let validation = session.validation {
                 Text(validation)
                     .font(.system(size: 13, weight: .medium))
@@ -234,14 +191,51 @@ struct ProfileEditorView: View {
                 }
             )
             .id(previewCardID(artwork))
-            Text("The preview uses the image on this Mac. Discord receives it only after you set the profile live.")
-                .font(.system(size: 12))
-                .foregroundStyle(DiscordTheme.muted)
-                .fixedSize(horizontal: false, vertical: true)
-            Text("Beside your name in the member list: \(session.draft.statusDisplayType.label).")
-                .font(.system(size: 12))
-                .foregroundStyle(DiscordTheme.muted)
-                .fixedSize(horizontal: false, vertical: true)
+            VStack(alignment: .leading, spacing: 22) {
+                section("Timer", footnote: "Off shows no timer on Discord. Count up shows elapsed time. An end time counts down. Custom timer can also be typed on the card, like 1:26:34, and Discord counts down from it.") {
+                    Picker("Timer", selection: $session.draft.timerMode) {
+                        ForEach(TimerMode.allCases) { mode in
+                            Text(mode.label).tag(mode)
+                        }
+                    }
+                    .labelsHidden()
+                    timerControls
+                }
+                .onChange(of: session.draft.timerMode) { _, mode in
+                    if mode == .countUpFromStart, session.draft.timerStart == nil {
+                        session.draft.timerStart = Date()
+                    }
+                    if mode == .countDownUntil, session.draft.timerEnd == nil {
+                        session.draft.timerEnd = Date().addingTimeInterval(3600)
+                    }
+                }
+
+                section("Party") {
+                    Toggle("Show party size", isOn: $session.partyEnabled)
+                        .toggleStyle(.switch)
+                    if session.partyEnabled {
+                        Stepper(value: $session.partyCurrent, in: 1...999) {
+                            Text("Current: \(session.partyCurrent)")
+                                .foregroundStyle(.white)
+                        }
+                        Stepper(value: $session.partyMax, in: 1...999) {
+                            Text("Max: \(session.partyMax)")
+                                .foregroundStyle(.white)
+                        }
+                        .onChange(of: session.partyCurrent) { _, value in
+                            if session.partyMax < value {
+                                session.partyMax = value
+                            }
+                        }
+                        .onChange(of: session.partyMax) { _, value in
+                            if session.partyCurrent > value {
+                                session.partyCurrent = value
+                            }
+                        }
+                    }
+                }
+            }
+            .padding(.top, 10)
         }
     }
 
@@ -255,40 +249,35 @@ struct ProfileEditorView: View {
                 .font(.system(size: 12))
                 .foregroundStyle(DiscordTheme.muted)
         case .countUpFromStart:
-            DatePicker(
-                "Start",
-                selection: Binding(
+            MomentEditor(
+                date: Binding(
                     get: { session.draft.timerStart ?? Date() },
                     set: { session.draft.timerStart = $0 }
                 ),
-                displayedComponents: [.date, .hourAndMinute]
+                kind: .start
             )
         case .countDownDuration:
-            Stepper(value: $session.draft.countdownHours, in: 0...48) {
-                Text("Hours: \(session.draft.countdownHours)")
-                    .foregroundStyle(.white)
-            }
-            Stepper(value: $session.draft.countdownMinutes, in: 0...59) {
-                Text("Minutes: \(session.draft.countdownMinutes)")
-                    .foregroundStyle(.white)
-            }
-            Stepper(value: $session.draft.countdownSeconds, in: 0...59) {
-                Text("Seconds: \(session.draft.countdownSeconds)")
-                    .foregroundStyle(.white)
-            }
+            DurationEditor(
+                hours: $session.draft.countdownHours,
+                minutes: $session.draft.countdownMinutes,
+                seconds: $session.draft.countdownSeconds,
+                maxHours: 48
+            )
         case .countDownUntil:
-            DatePicker(
-                "End",
-                selection: Binding(
+            MomentEditor(
+                date: Binding(
                     get: { session.draft.timerEnd ?? Date().addingTimeInterval(3600) },
                     set: { session.draft.timerEnd = $0 }
                 ),
-                displayedComponents: [.date, .hourAndMinute]
+                kind: .end
             )
         case .custom:
-            Text("Type the time on the card. Discord counts down from that time when you apply the profile.")
-                .font(.system(size: 12))
-                .foregroundStyle(DiscordTheme.muted)
+            DurationEditor(
+                hours: Binding(get: { session.draft.customHoursValue }, set: { session.draft.customHours = $0 }),
+                minutes: Binding(get: { session.draft.customMinutesValue }, set: { session.draft.customMinutes = $0 }),
+                seconds: Binding(get: { session.draft.customSecondsValue }, set: { session.draft.customSeconds = $0 }),
+                maxHours: 999
+            )
         }
     }
 
@@ -385,15 +374,17 @@ struct ProfileEditorView: View {
         )
     }
 
-    private func section<Content: View>(_ title: String, footnote: String, @ViewBuilder content: () -> Content) -> some View {
+    private func section<Content: View>(_ title: String, footnote: String? = nil, @ViewBuilder content: () -> Content) -> some View {
         VStack(alignment: .leading, spacing: 12) {
             Text(title)
                 .font(.system(size: 16, weight: .bold))
                 .foregroundStyle(.white)
-            Text(footnote)
-                .font(.system(size: 12))
-                .foregroundStyle(DiscordTheme.muted)
-                .fixedSize(horizontal: false, vertical: true)
+            if let footnote {
+                Text(footnote)
+                    .font(.system(size: 12))
+                    .foregroundStyle(DiscordTheme.muted)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
             content()
         }
     }
