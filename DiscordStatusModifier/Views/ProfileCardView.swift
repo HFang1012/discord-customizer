@@ -21,16 +21,30 @@ struct ProfileCardView: View {
     var onDragChanged: ((DragGesture.Value) -> Void)? = nil
     var onDragEnded: ((DragGesture.Value) -> Void)? = nil
 
+    @State private var cardHovered = false
+    @State private var menuZoneHovered = false
+    @State private var menuHovered = false
+    @State private var timerHovered = false
+
     var body: some View {
         ZStack(alignment: .topTrailing) {
             cardButton
             if showsMenu {
+                menuDeadZone
                 overflowMenu
-                    .padding(.top, 8)
+                    .padding(.top, 10)
                     .padding(.trailing, 8)
             }
         }
-        .background(DiscordTheme.card)
+        .background {
+            ZStack {
+                DiscordTheme.card
+                if let toggleTint {
+                    toggleTint.opacity(0.09)
+                }
+            }
+            .animation(.easeOut(duration: 0.12), value: toggleTint)
+        }
         .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
         .compositingGroup()
         .overlay(
@@ -56,6 +70,22 @@ struct ProfileCardView: View {
         .accessibilityElement(children: .contain)
     }
 
+    /// Blue when a click would turn the status on, gray when it would turn it off.
+    private var toggleTint: Color? {
+        guard isInteractive, !isPublishing, cardHovered, !menuZoneHovered, !timerHovered else { return nil }
+        return isLive ? DiscordTheme.grayHover : DiscordTheme.accent
+    }
+
+    /// Swallows clicks around the ⋯ button so a near miss doesn't toggle the status.
+    private var menuDeadZone: some View {
+        Color.clear
+            .frame(width: 52, height: 46)
+            .contentShape(Rectangle())
+            .onTapGesture {}
+            .onHover { menuZoneHovered = $0 }
+            .accessibilityHidden(true)
+    }
+
     private var cardButton: some View {
         cardControl
             .accessibilityAddTraits(isLive ? .isSelected : [])
@@ -70,10 +100,12 @@ struct ProfileCardView: View {
         if let onDragChanged, let onDragEnded {
             cardBody
                 .contentShape(shape)
+                .onHover { cardHovered = $0 }
                 .gesture(reorderGesture(onChanged: onDragChanged, onEnded: onDragEnded))
         } else {
             cardBody
                 .contentShape(shape)
+                .onHover { cardHovered = $0 }
                 .onTapGesture {
                     guard isInteractive else { return }
                     onSelect()
@@ -145,6 +177,7 @@ struct ProfileCardView: View {
                                 onCustomTimer?(hours, minutes, seconds)
                             }
                         )
+                        .onHover { timerHovered = $0 }
                     } else if timer != .hidden {
                         PresenceTimer(display: timer, activityType: profile.activityType)
                             .allowsHitTesting(false)
@@ -404,6 +437,13 @@ private struct OutsideClickMonitor: NSViewRepresentable {
         .menuStyle(.borderlessButton)
         .menuIndicator(.hidden)
         .fixedSize()
+        .background {
+            RoundedRectangle(cornerRadius: 6, style: .continuous)
+                .fill(menuHovered ? DiscordTheme.button : Color.clear)
+                .shadow(color: .black.opacity(menuHovered ? 0.45 : 0), radius: 4, y: 2)
+        }
+        .onHover { menuHovered = $0 }
+        .animation(.easeOut(duration: 0.12), value: menuHovered)
         .help("Edit, duplicate, download, download full, or delete")
         .accessibilityLabel("Actions for \(profile.listTitle)")
     }

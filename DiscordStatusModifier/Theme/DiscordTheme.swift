@@ -10,6 +10,7 @@ enum DiscordTheme {
     static let muted = Color(hex: 0x949BA4)
     static let timer = Color(hex: 0x23A559)
     static let accent = Color(hex: 0x5865F2)
+    static let grayHover = Color(hex: 0xb8b8b8)
     static let danger = Color(hex: 0xDA373C)
     static let dangerFill = Color(hex: 0x3A1719)
 }
