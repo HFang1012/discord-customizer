@@ -13,6 +13,8 @@ enum ProfileTransferError: LocalizedError {
     case unreadable
     case notACard
     case newerVersion
+    case destinationIsFile
+    case emptyFolder
 
     var errorDescription: String? {
         switch self {
@@ -22,6 +24,10 @@ enum ProfileTransferError: LocalizedError {
             return "This file isn’t a Discord activity card."
         case .newerVersion:
             return "This card file is from a newer version of Discord Status Modifier."
+        case .destinationIsFile:
+            return "That name is already a file. Choose a folder name."
+        case .emptyFolder:
+            return "That folder doesn’t contain any activity cards."
         }
     }
 }
@@ -127,6 +133,35 @@ enum ProfileTransfer {
         return profile
     }
 
+    /// `.dscard` and `.json` files in `folder`, plus the same files one folder down.
+    static func cardFiles(in folder: URL) -> [URL] {
+        let manager = FileManager.default
+        guard let entries = try? manager.contentsOfDirectory(
+            at: folder,
+            includingPropertiesForKeys: [.isDirectoryKey],
+            options: [.skipsHiddenFiles]
+        ) else {
+            return []
+        }
+        var files: [URL] = []
+        for entry in entries {
+            let isDirectory = (try? entry.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) ?? false
+            if isDirectory {
+                guard let nested = try? manager.contentsOfDirectory(
+                    at: entry,
+                    includingPropertiesForKeys: [.isDirectoryKey],
+                    options: [.skipsHiddenFiles]
+                ) else { continue }
+                files.append(contentsOf: nested.filter(isCardFile))
+            } else if isCardFile(entry) {
+                files.append(entry)
+            }
+        }
+        return files.sorted {
+            $0.lastPathComponent.localizedStandardCompare($1.lastPathComponent) == .orderedAscending
+        }
+    }
+
     static func suggestedFilename(for profile: StatusProfile) -> String {
         let illegal = CharacterSet(charactersIn: "/:\\?%*|\"<>")
         let scalars = profile.listTitle.unicodeScalars.map { scalar -> Character in
@@ -138,6 +173,13 @@ enum ProfileTransfer {
         let trimmed = String(scalars).trimmingCharacters(in: .whitespacesAndNewlines)
         let base = trimmed.isEmpty ? "profile" : trimmed
         return String(base.prefix(80)) + ".dscard"
+    }
+
+    private static func isCardFile(_ url: URL) -> Bool {
+        let values = try? url.resourceValues(forKeys: [.isDirectoryKey])
+        if values?.isDirectory == true { return false }
+        let ext = url.pathExtension.lowercased()
+        return ext == "dscard" || ext == "json"
     }
 
     private static func embeddedImage(filename: String?, store: ProfileStore) throws -> EmbeddedImage? {

@@ -468,9 +468,42 @@ final class AppModel: ObservableObject {
         try ProfileTransfer.exportFile(for: profile, store: store)
     }
 
+    /// Writes every profile as a `.dscard` inside `folder`, creating the folder when needed.
+    func exportLibrary(to folder: URL) throws -> Int {
+        let manager = FileManager.default
+        var isDirectory: ObjCBool = false
+        if manager.fileExists(atPath: folder.path, isDirectory: &isDirectory) {
+            guard isDirectory.boolValue else { throw ProfileTransferError.destinationIsFile }
+        } else {
+            try manager.createDirectory(at: folder, withIntermediateDirectories: true)
+        }
+        var used = Set(try manager.contentsOfDirectory(atPath: folder.path))
+        var count = 0
+        for profile in profiles {
+            let file = try ProfileTransfer.exportFile(for: profile, store: store)
+            let name = uniqueFilename(file.filename, used: &used)
+            try file.data.write(to: folder.appendingPathComponent(name), options: .atomic)
+            count += 1
+        }
+        return count
+    }
+
     func uploadCard(from url: URL) {
         let accessed = url.startAccessingSecurityScopedResource()
         defer { if accessed { url.stopAccessingSecurityScopedResource() } }
+        var isDirectory: ObjCBool = false
+        guard FileManager.default.fileExists(atPath: url.path, isDirectory: &isDirectory) else {
+            banner = .error(ProfileTransferError.unreadable.localizedDescription)
+            return
+        }
+        if isDirectory.boolValue {
+            uploadFolder(url)
+        } else {
+            uploadFile(url)
+        }
+    }
+
+    private func uploadFile(_ url: URL) {
         do {
             let data = try Data(contentsOf: url)
             let profile = try ProfileTransfer.importProfile(from: data, store: store)
@@ -481,6 +514,55 @@ final class AppModel: ObservableObject {
             schedulePreview(profile.smallImageRemoteURL)
         } catch {
             banner = .error(error.localizedDescription)
+        }
+    }
+
+    private func uploadFolder(_ folder: URL) {
+        let files = ProfileTransfer.cardFiles(in: folder)
+        guard !files.isEmpty else {
+            banner = .error(ProfileTransferError.emptyFolder.localizedDescription)
+            return
+        }
+        var added: [StatusProfile] = []
+        var skipped = 0
+        for file in files {
+            do {
+                let data = try Data(contentsOf: file)
+                added.append(try ProfileTransfer.importProfile(from: data, store: store))
+            } catch {
+                skipped += 1
+            }
+        }
+        guard !added.isEmpty else {
+            banner = .error(ProfileTransferError.notACard.localizedDescription)
+            return
+        }
+        profiles.insert(contentsOf: added, at: 0)
+        persistProfiles()
+        for profile in added {
+            schedulePreview(profile.largeImageRemoteURL)
+            schedulePreview(profile.smallImageRemoteURL)
+        }
+        if added.count == 1, skipped == 0 {
+            banner = .success("Added “\(added[0].listTitle)”.")
+        } else if skipped == 0 {
+            banner = .success("Added \(added.count) profiles.")
+        } else {
+            let fileWord = skipped == 1 ? "file wasn’t" : "files weren’t"
+            banner = .success("Added \(added.count) profiles. \(skipped) \(fileWord) an activity card.")
+        }
+    }
+
+    private func uniqueFilename(_ filename: String, used: inout Set<String>) -> String {
+        if used.insert(filename).inserted { return filename }
+        let ns = filename as NSString
+        let base = ns.deletingPathExtension
+        let ext = ns.pathExtension
+        var index = 2
+        while true {
+            let candidate = ext.isEmpty ? "\(base) \(index)" : "\(base) \(index).\(ext)"
+            if used.insert(candidate).inserted { return candidate }
+            index += 1
         }
     }
 
@@ -509,17 +591,14 @@ final class AppModel: ObservableObject {
         persistProfiles()
     }
 
-    /// Moves one profile to another’s place among `visibleIDs`, leaving every other profile where it is.
-    func reorderProfiles(moving sourceID: UUID, to targetID: UUID, among visibleIDs: [UUID]) {
-        guard sourceID != targetID,
-              let from = visibleIDs.firstIndex(of: sourceID),
-              let to = visibleIDs.firstIndex(of: targetID) else { return }
-        var order = visibleIDs
-        let moved = order.remove(at: from)
-        order.insert(moved, at: to)
+    /// Writes `visibleIDs` back into the slots those profiles already occupy.
+    func applyVisibleOrder(_ visibleIDs: [UUID]) {
         let visible = Set(visibleIDs)
+        guard visible.count == visibleIDs.count,
+              visibleIDs.allSatisfy({ id in profiles.contains { $0.id == id } }),
+              profiles.filter({ visible.contains($0.id) }).map(\.id) != visibleIDs else { return }
         let byID = Dictionary(uniqueKeysWithValues: profiles.map { ($0.id, $0) })
-        var next = order.makeIterator()
+        var next = visibleIDs.makeIterator()
         profiles = profiles.map { profile in
             guard visible.contains(profile.id),
                   let nextID = next.next(),

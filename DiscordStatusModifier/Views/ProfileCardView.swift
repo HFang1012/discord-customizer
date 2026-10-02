@@ -15,8 +15,11 @@ struct ProfileCardView: View {
     var onEdit: () -> Void
     var onDuplicate: () -> Void
     var onDownload: () -> Void
+    var onDownloadFull: () -> Void
     var onDelete: () -> Void
     var onCustomTimer: ((Int, Int, Int) -> Void)? = nil
+    var onDragChanged: ((DragGesture.Value) -> Void)? = nil
+    var onDragEnded: ((DragGesture.Value) -> Void)? = nil
 
     var body: some View {
         ZStack(alignment: .topTrailing) {
@@ -54,16 +57,41 @@ struct ProfileCardView: View {
     }
 
     private var cardButton: some View {
-        cardBody
-            .contentShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
-            .onTapGesture {
-                guard isInteractive else { return }
-                onSelect()
-            }
+        cardControl
             .accessibilityAddTraits(isLive ? .isSelected : [])
             .accessibilityLabel("\(profile.activityType.label), \(profile.listTitle)")
             .accessibilityHint(isInteractive ? (isLive ? "Removes this status. Drag to rearrange." : "Adds this status. Drag to rearrange.") : "")
             .accessibilityAddTraits(isInteractive ? .isButton : [])
+    }
+
+    @ViewBuilder
+    private var cardControl: some View {
+        let shape = RoundedRectangle(cornerRadius: 12, style: .continuous)
+        if let onDragChanged, let onDragEnded {
+            cardBody
+                .contentShape(shape)
+                .gesture(reorderGesture(onChanged: onDragChanged, onEnded: onDragEnded))
+        } else {
+            cardBody
+                .contentShape(shape)
+                .onTapGesture {
+                    guard isInteractive else { return }
+                    onSelect()
+                }
+        }
+    }
+
+    private func reorderGesture(
+        onChanged: @escaping (DragGesture.Value) -> Void,
+        onEnded: @escaping (DragGesture.Value) -> Void
+    ) -> some Gesture {
+        DragGesture(minimumDistance: 8, coordinateSpace: .named(ProfileGridCoordinate.name))
+            .onChanged(onChanged)
+            .onEnded(onEnded)
+            .exclusively(before: TapGesture().onEnded {
+                guard isInteractive else { return }
+                onSelect()
+            })
     }
 
     private var cardBody: some View {
@@ -363,6 +391,7 @@ private struct OutsideClickMonitor: NSViewRepresentable {
             Button("Edit", action: onEdit)
             Button("Duplicate", action: onDuplicate)
             Button("Download", action: onDownload)
+            Button("Download full", action: onDownloadFull)
             Divider()
             Button("Delete", role: .destructive, action: onDelete)
         } label: {
@@ -375,7 +404,7 @@ private struct OutsideClickMonitor: NSViewRepresentable {
         .menuStyle(.borderlessButton)
         .menuIndicator(.hidden)
         .fixedSize()
-        .help("Edit, duplicate, download, or delete")
+        .help("Edit, duplicate, download, download full, or delete")
         .accessibilityLabel("Actions for \(profile.listTitle)")
     }
 }

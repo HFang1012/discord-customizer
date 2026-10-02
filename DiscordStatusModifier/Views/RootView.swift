@@ -5,12 +5,16 @@ import UniformTypeIdentifiers
 struct RootView: View {
     @EnvironmentObject private var model: AppModel
     @Environment(\.openWindow) private var openWindow
-    @State private var importerPresented = false
     @State private var exporterPresented = false
+    @State private var uploadDelegate = UploadPanelDelegate()
     @State private var exportDocument: ActivityCardDocument?
     @State private var exportFilename = "profile"
     @State private var libraryFilter: LibraryFilter = .all
-    @State private var dropTargetID: UUID?
+    @State private var restingFrames: [UUID: CGRect] = [:]
+    @State private var dragID: UUID?
+    @State private var dragTranslation: CGSize = .zero
+    @State private var dragOrder: [UUID] = []
+    @State private var isSettling = false
 
     var body: some View {
         NavigationStack {
@@ -36,11 +40,20 @@ struct RootView: View {
             .toolbar {
                 ToolbarItem(placement: .primaryAction) {
                     Button {
-                        importerPresented = true
+                        downloadFull()
+                    } label: {
+                        Label("Download full", systemImage: "folder")
+                    }
+                    .disabled(model.profiles.isEmpty)
+                    .help("Save every profile into a folder")
+                }
+                ToolbarItem(placement: .primaryAction) {
+                    Button {
+                        presentUpload()
                     } label: {
                         Label("Upload", systemImage: "square.and.arrow.up")
                     }
-                    .help("Upload a profile")
+                    .help("Upload a profile file or a folder of profiles")
                 }
                 ToolbarItem(placement: .primaryAction) {
                     Button {
@@ -69,21 +82,6 @@ struct RootView: View {
         .sheet(item: $model.editor) { session in
             ProfileEditorView(session: session)
                 .environmentObject(model)
-        }
-        .fileImporter(
-            isPresented: $importerPresented,
-            allowedContentTypes: [.discordStatusCard, .json],
-            allowsMultipleSelection: false
-        ) { result in
-            switch result {
-            case .failure(let error):
-                if !isCancellation(error) {
-                    model.banner = .error(error.localizedDescription)
-                }
-            case .success(let urls):
-                guard let url = urls.first else { return }
-                model.uploadCard(from: url)
-            }
         }
         .fileExporter(
             isPresented: $exporterPresented,
@@ -148,7 +146,7 @@ struct RootView: View {
                 let isSelected = libraryFilter == filter
                 Button {
                     libraryFilter = filter
-                    dropTargetID = nil
+                    cancelDrag()
                 } label: {
                     Text(filter.title)
                         .font(.system(size: 13, weight: .semibold))
@@ -293,7 +291,7 @@ struct RootView: View {
                 .buttonStyle(.borderedProminent)
                 .tint(DiscordTheme.accent)
                 Button("Upload profile") {
-                    importerPresented = true
+                    presentUpload()
                 }
                 .buttonStyle(.bordered)
             }
@@ -327,59 +325,229 @@ struct RootView: View {
             ) {
                 ForEach(filteredProfiles) { profile in
                     let artwork = model.artwork(for: profile)
-                    ProfileCardView(
-                        profile: profile,
-                        artwork: artwork,
-                        timer: model.timerDisplay(for: profile, previewAnchor: nil),
-                        isLive: model.isLive(profile.id),
-                        isPublishing: model.isPublishing(profile.id),
-                        publishingLabel: model.publishingLabel(for: profile.id),
-                        statusNote: model.statusNote(for: profile),
-                        showsMenu: true,
-                        isInteractive: true,
-                        onSelect: { model.select(profile) },
-                        onEdit: { model.beginEdit(profile) },
-                        onDuplicate: { model.duplicate(profile) },
-                        onDownload: { download(profile) },
-                        onDelete: { model.pendingDelete = profile },
-                        onCustomTimer: { hours, minutes, seconds in
-                            model.setCustomTimer(profileID: profile.id, hours: hours, minutes: minutes, seconds: seconds)
-                        }
-                    )
+                    profileCard(profile, isInteractive: true) { value in
+                        handleDragChanged(value, profileID: profile.id)
+                    } onDragEnded: { _ in
+                        guard dragID == profile.id else { return }
+                        finishDrag()
+                    }
                     .id("\(profile.id.uuidString)-\(revision)-\(artworkDisplayID(local: artwork.largeLocal, remote: artwork.largeRemote))-\(artworkDisplayID(local: artwork.smallLocal, remote: artwork.smallRemote))")
-                    .overlay {
-                        RoundedRectangle(cornerRadius: 12, style: .continuous)
-                            .strokeBorder(DiscordTheme.accent, lineWidth: dropTargetID == profile.id ? 2 : 0)
-                    }
-                    .draggable(profile.id.uuidString) {
-                        Text(profile.listTitle)
-                            .font(.system(size: 13, weight: .semibold))
-                            .foregroundStyle(.white)
-                            .lineLimit(1)
-                            .padding(.horizontal, 12)
-                            .padding(.vertical, 8)
-                            .background(DiscordTheme.card, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
-                    }
-                    .dropDestination(for: String.self) { items, _ in
-                        guard let raw = items.first, let sourceID = UUID(uuidString: raw) else { return false }
-                        dropTargetID = nil
-                        withAnimation(.easeInOut(duration: 0.18)) {
-                            model.reorderProfiles(moving: sourceID, to: profile.id, among: visibleIDs)
-                        }
-                        return true
-                    } isTargeted: { targeted in
-                        if targeted {
-                            dropTargetID = profile.id
-                        } else if dropTargetID == profile.id {
-                            dropTargetID = nil
+                    .background {
+                        GeometryReader { geo in
+                            Color.clear.preference(
+                                key: CardFramePreference.self,
+                                value: [profile.id: geo.frame(in: .named(ProfileGridCoordinate.name))]
+                            )
                         }
                     }
+                    .opacity(dragID == profile.id ? 0 : 1)
+                    .offset(cardOffset(for: profile.id, layoutIDs: visibleIDs))
+                    .animation(dragID == profile.id ? nil : .spring(response: 0.28, dampingFraction: 0.84), value: dragOrder)
                 }
             }
+            .coordinateSpace(name: ProfileGridCoordinate.name)
+            .onPreferenceChange(CardFramePreference.self) { frames in
+                guard dragID == nil else { return }
+                restingFrames = frames
+            }
+            .overlay(alignment: .topLeading) {
+                dragLayer(layoutIDs: visibleIDs)
+            }
             .padding(20)
-            .animation(.easeInOut(duration: 0.18), value: visibleIDs)
+            .animation(dragID == nil && !isSettling ? .easeInOut(duration: 0.18) : nil, value: visibleIDs)
         }
         .scrollContentBackground(.hidden)
+    }
+
+    private func dragLayer(layoutIDs: [UUID]) -> some View {
+        ZStack(alignment: .topLeading) {
+            if let gap = gapFrame(layoutIDs: layoutIDs) {
+                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    .fill(Color.white.opacity(0.04))
+                    .overlay {
+                        RoundedRectangle(cornerRadius: 12, style: .continuous)
+                            .strokeBorder(Color.white.opacity(0.16), style: StrokeStyle(lineWidth: 1.5, dash: [5, 4]))
+                    }
+                    .frame(width: gap.width, height: gap.height)
+                    .offset(x: gap.minX, y: gap.minY)
+                    .animation(.spring(response: 0.28, dampingFraction: 0.84), value: dragOrder)
+            }
+            if let dragID,
+               let profile = model.profiles.first(where: { $0.id == dragID }),
+               let home = restingFrames[dragID] {
+                profileCard(profile, isInteractive: false)
+                    .frame(width: home.width, height: home.height)
+                    .shadow(color: .black.opacity(0.45), radius: 18, y: 10)
+                    .offset(x: home.minX + dragTranslation.width, y: home.minY + dragTranslation.height)
+            }
+        }
+        .allowsHitTesting(false)
+    }
+
+    private func profileCard(
+        _ profile: StatusProfile,
+        isInteractive: Bool,
+        onDragChanged: ((DragGesture.Value) -> Void)? = nil,
+        onDragEnded: ((DragGesture.Value) -> Void)? = nil
+    ) -> some View {
+        let artwork = model.artwork(for: profile)
+        return ProfileCardView(
+            profile: profile,
+            artwork: artwork,
+            timer: model.timerDisplay(for: profile, previewAnchor: nil),
+            isLive: model.isLive(profile.id),
+            isPublishing: model.isPublishing(profile.id),
+            publishingLabel: model.publishingLabel(for: profile.id),
+            statusNote: model.statusNote(for: profile),
+            showsMenu: true,
+            isInteractive: isInteractive,
+            onSelect: { model.select(profile) },
+            onEdit: { model.beginEdit(profile) },
+            onDuplicate: { model.duplicate(profile) },
+            onDownload: { download(profile) },
+            onDownloadFull: { downloadFull() },
+            onDelete: { model.pendingDelete = profile },
+            onCustomTimer: { hours, minutes, seconds in
+                model.setCustomTimer(profileID: profile.id, hours: hours, minutes: minutes, seconds: seconds)
+            },
+            onDragChanged: onDragChanged,
+            onDragEnded: onDragEnded
+        )
+    }
+
+    private func cardOffset(for id: UUID, layoutIDs: [UUID]) -> CGSize {
+        guard dragID != nil, id != dragID,
+              let homeIndex = layoutIDs.firstIndex(of: id),
+              let visualIndex = dragOrder.firstIndex(of: id),
+              let home = restingFrames[layoutIDs[homeIndex]],
+              let slot = restingFrames[layoutIDs[visualIndex]] else {
+            return .zero
+        }
+        return CGSize(width: slot.minX - home.minX, height: slot.minY - home.minY)
+    }
+
+    private func gapFrame(layoutIDs: [UUID]) -> CGRect? {
+        guard let dragID, let index = dragOrder.firstIndex(of: dragID), layoutIDs.indices.contains(index) else {
+            return nil
+        }
+        return restingFrames[layoutIDs[index]]
+    }
+
+    private func handleDragChanged(_ value: DragGesture.Value, profileID: UUID) {
+        guard !isSettling, restingFrames[profileID] != nil else { return }
+        if dragID == nil {
+            dragID = profileID
+            dragOrder = filteredProfiles.map(\.id)
+        }
+        guard dragID == profileID, let home = restingFrames[profileID] else { return }
+        var transaction = Transaction()
+        transaction.disablesAnimations = true
+        withTransaction(transaction) {
+            dragTranslation = value.translation
+        }
+        let center = CGPoint(
+            x: home.midX + value.translation.width,
+            y: home.midY + value.translation.height
+        )
+        updateDragOrder(center: center)
+    }
+
+    private func updateDragOrder(center: CGPoint) {
+        guard let dragID else { return }
+        let layoutIDs = filteredProfiles.map(\.id)
+        guard !layoutIDs.isEmpty, dragOrder.count == layoutIDs.count else { return }
+        var bestIndex = dragOrder.firstIndex(of: dragID) ?? 0
+        var bestDistance = CGFloat.greatestFiniteMagnitude
+        for index in layoutIDs.indices {
+            guard let slot = restingFrames[layoutIDs[index]] else { continue }
+            let dx = slot.midX - center.x
+            let dy = slot.midY - center.y
+            let distance = (dx * dx) + (dy * dy)
+            if distance < bestDistance {
+                bestDistance = distance
+                bestIndex = index
+            }
+        }
+        guard dragOrder[bestIndex] != dragID, let from = dragOrder.firstIndex(of: dragID) else { return }
+        var order = dragOrder
+        order.remove(at: from)
+        order.insert(dragID, at: bestIndex)
+        dragOrder = order
+    }
+
+    private func finishDrag() {
+        guard let dragID, !isSettling else { return }
+        let layoutIDs = filteredProfiles.map(\.id)
+        let order = dragOrder
+        let settle: CGSize
+        if let home = restingFrames[dragID],
+           let index = order.firstIndex(of: dragID),
+           layoutIDs.indices.contains(index),
+           let target = restingFrames[layoutIDs[index]] {
+            settle = CGSize(width: target.minX - home.minX, height: target.minY - home.minY)
+        } else {
+            settle = .zero
+        }
+        isSettling = true
+        withAnimation(.spring(response: 0.28, dampingFraction: 0.86), completionCriteria: .logicallyComplete) {
+            dragTranslation = settle
+        } completion: {
+            var transaction = Transaction()
+            transaction.disablesAnimations = true
+            withTransaction(transaction) {
+                if !order.isEmpty {
+                    model.applyVisibleOrder(order)
+                }
+                self.dragID = nil
+                self.dragTranslation = .zero
+                self.dragOrder = []
+                self.isSettling = false
+            }
+        }
+    }
+
+    private func cancelDrag() {
+        guard !isSettling else { return }
+        var transaction = Transaction()
+        transaction.disablesAnimations = true
+        withTransaction(transaction) {
+            dragID = nil
+            dragTranslation = .zero
+            dragOrder = []
+        }
+    }
+
+    private func presentUpload() {
+        let panel = NSOpenPanel()
+        panel.canChooseFiles = true
+        panel.canChooseDirectories = true
+        panel.allowsMultipleSelection = false
+        panel.canCreateDirectories = false
+        panel.prompt = "Upload"
+        panel.message = "Choose a profile file or a folder of profiles."
+        panel.delegate = uploadDelegate
+        panel.begin { response in
+            guard response == .OK, let url = panel.url else { return }
+            model.uploadCard(from: url)
+        }
+    }
+
+    private func downloadFull() {
+        let panel = NSSavePanel()
+        panel.canCreateDirectories = true
+        panel.nameFieldStringValue = "Discord Profiles"
+        panel.prompt = "Save"
+        panel.message = "Saves every profile into this folder."
+        panel.begin { response in
+            guard response == .OK, let url = panel.url else { return }
+            do {
+                let count = try model.exportLibrary(to: url)
+                let word = count == 1 ? "profile" : "profiles"
+                model.banner = .success("Saved \(count) \(word) to “\(url.lastPathComponent)”.")
+            } catch {
+                model.banner = .error(error.localizedDescription)
+            }
+        }
     }
 
     private func download(_ profile: StatusProfile) {
@@ -397,6 +565,30 @@ struct RootView: View {
         if error is CancellationError { return true }
         let ns = error as NSError
         return ns.domain == NSCocoaErrorDomain && ns.code == NSUserCancelledError
+    }
+}
+
+private final class UploadPanelDelegate: NSObject, NSOpenSavePanelDelegate {
+    func panel(_ sender: Any, shouldEnable url: URL) -> Bool {
+        var isDirectory: ObjCBool = false
+        guard FileManager.default.fileExists(atPath: url.path, isDirectory: &isDirectory) else {
+            return false
+        }
+        if isDirectory.boolValue { return true }
+        let ext = url.pathExtension.lowercased()
+        return ext == "dscard" || ext == "json"
+    }
+}
+
+enum ProfileGridCoordinate {
+    static let name = "profileGrid"
+}
+
+private struct CardFramePreference: PreferenceKey {
+    static var defaultValue: [UUID: CGRect] = [:]
+
+    static func reduce(value: inout [UUID: CGRect], nextValue: () -> [UUID: CGRect]) {
+        value.merge(nextValue(), uniquingKeysWith: { $1 })
     }
 }
 

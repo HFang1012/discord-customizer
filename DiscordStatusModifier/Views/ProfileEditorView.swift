@@ -225,6 +225,7 @@ struct ProfileEditorView: View {
                 onEdit: {},
                 onDuplicate: {},
                 onDownload: {},
+                onDownloadFull: {},
                 onDelete: {},
                 onCustomTimer: { hours, minutes, seconds in
                     session.draft.customHours = hours
