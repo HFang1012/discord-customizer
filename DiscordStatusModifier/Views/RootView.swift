@@ -9,17 +9,22 @@ struct RootView: View {
     @State private var exporterPresented = false
     @State private var exportDocument: ActivityCardDocument?
     @State private var exportFilename = "profile"
+    @State private var libraryFilter: LibraryFilter = .all
+    @State private var dropTargetID: UUID?
 
     var body: some View {
         NavigationStack {
             VStack(spacing: 0) {
                 topBar
+                filterBar
                 if let banner = model.banner {
                     bannerView(banner)
                 }
                 Group {
                     if model.profiles.isEmpty {
                         emptyState
+                    } else if filteredProfiles.isEmpty {
+                        filteredEmptyState
                     } else {
                         profileGrid
                     }
@@ -53,7 +58,7 @@ struct RootView: View {
         .tint(DiscordTheme.accent)
         .frame(minWidth: 560, minHeight: 520)
         .overlay(alignment: .bottomTrailing) {
-            Text("HF_ang · an idea by automagicle")
+            Text("© 2026 hucklberi & automagicle")
                 .font(.system(size: 9))
                 .foregroundStyle(DiscordTheme.muted.opacity(0.4))
                 .padding(.trailing, 16)
@@ -135,6 +140,44 @@ struct RootView: View {
         .padding(.horizontal, 20)
         .padding(.vertical, 14)
         .background(DiscordTheme.elevated)
+    }
+
+    private var filterBar: some View {
+        HStack(spacing: 6) {
+            ForEach(LibraryFilter.allCases) { filter in
+                let isSelected = libraryFilter == filter
+                Button {
+                    libraryFilter = filter
+                    dropTargetID = nil
+                } label: {
+                    Text(filter.title)
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundStyle(isSelected ? Color.white : DiscordTheme.secondary)
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 6)
+                        .background {
+                            Capsule(style: .continuous)
+                                .fill(isSelected ? DiscordTheme.accent : Color.white.opacity(0.06))
+                        }
+                }
+                .buttonStyle(.plain)
+                .accessibilityAddTraits(isSelected ? .isSelected : [])
+            }
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, 20)
+        .padding(.vertical, 10)
+        .background(DiscordTheme.elevated)
+        .overlay(alignment: .bottom) {
+            Rectangle()
+                .fill(Color.white.opacity(0.06))
+                .frame(height: 1)
+        }
+    }
+
+    private var filteredProfiles: [StatusProfile] {
+        guard let type = libraryFilter.activityType else { return model.profiles }
+        return model.profiles.filter { $0.activityType == type }
     }
 
     private var connectionCluster: some View {
@@ -259,14 +302,30 @@ struct RootView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
+    private var filteredEmptyState: some View {
+        VStack(spacing: 10) {
+            Text("No \(libraryFilter.title.lowercased()) profiles")
+                .font(.system(size: 18, weight: .bold))
+                .foregroundStyle(.white)
+            Text("Cards set to \(libraryFilter.title) show up here.")
+                .font(.system(size: 14))
+                .foregroundStyle(DiscordTheme.secondary)
+                .multilineTextAlignment(.center)
+                .frame(maxWidth: 380)
+        }
+        .padding(32)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
     private var profileGrid: some View {
         let revision = model.previewRevision
+        let visibleIDs = filteredProfiles.map(\.id)
         return ScrollView {
             LazyVGrid(
                 columns: [GridItem(.adaptive(minimum: 320, maximum: 460), spacing: 16)],
                 spacing: 16
             ) {
-                ForEach(model.profiles) { profile in
+                ForEach(filteredProfiles) { profile in
                     let artwork = model.artwork(for: profile)
                     ProfileCardView(
                         profile: profile,
@@ -288,9 +347,37 @@ struct RootView: View {
                         }
                     )
                     .id("\(profile.id.uuidString)-\(revision)-\(artworkDisplayID(local: artwork.largeLocal, remote: artwork.largeRemote))-\(artworkDisplayID(local: artwork.smallLocal, remote: artwork.smallRemote))")
+                    .overlay {
+                        RoundedRectangle(cornerRadius: 12, style: .continuous)
+                            .strokeBorder(DiscordTheme.accent, lineWidth: dropTargetID == profile.id ? 2 : 0)
+                    }
+                    .draggable(profile.id.uuidString) {
+                        Text(profile.listTitle)
+                            .font(.system(size: 13, weight: .semibold))
+                            .foregroundStyle(.white)
+                            .lineLimit(1)
+                            .padding(.horizontal, 12)
+                            .padding(.vertical, 8)
+                            .background(DiscordTheme.card, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+                    }
+                    .dropDestination(for: String.self) { items, _ in
+                        guard let raw = items.first, let sourceID = UUID(uuidString: raw) else { return false }
+                        dropTargetID = nil
+                        withAnimation(.easeInOut(duration: 0.18)) {
+                            model.reorderProfiles(moving: sourceID, to: profile.id, among: visibleIDs)
+                        }
+                        return true
+                    } isTargeted: { targeted in
+                        if targeted {
+                            dropTargetID = profile.id
+                        } else if dropTargetID == profile.id {
+                            dropTargetID = nil
+                        }
+                    }
                 }
             }
             .padding(20)
+            .animation(.easeInOut(duration: 0.18), value: visibleIDs)
         }
         .scrollContentBackground(.hidden)
     }
@@ -310,6 +397,36 @@ struct RootView: View {
         if error is CancellationError { return true }
         let ns = error as NSError
         return ns.domain == NSCocoaErrorDomain && ns.code == NSUserCancelledError
+    }
+}
+
+private enum LibraryFilter: String, CaseIterable, Identifiable {
+    case all
+    case watching
+    case listening
+    case playing
+    case competing
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .all: return "All"
+        case .watching: return "Watching"
+        case .listening: return "Listening"
+        case .playing: return "Playing"
+        case .competing: return "Competing"
+        }
+    }
+
+    var activityType: ActivityType? {
+        switch self {
+        case .all: return nil
+        case .watching: return .watching
+        case .listening: return .listening
+        case .playing: return .playing
+        case .competing: return .competing
+        }
     }
 }
 

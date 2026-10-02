@@ -30,6 +30,16 @@ enum ActivityType: Int, CaseIterable, Identifiable, Hashable {
         case .competing: return "Competing"
         }
     }
+
+    /// SF Symbol shown beside the timer on profile cards, matching Discord’s activity cues.
+    var timerSymbol: String {
+        switch self {
+        case .playing: return "gamecontroller.fill"
+        case .listening: return "headphones"
+        case .watching: return "eye.fill"
+        case .competing: return "trophy.fill"
+        }
+    }
 }
 
 extension ActivityType: Codable {

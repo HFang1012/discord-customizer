@@ -264,9 +264,9 @@ final class AppModel: ObservableObject {
 
     func timerDisplay(for profile: StatusProfile, previewAnchor: Date?) -> TimerDisplay {
         switch profile.timerMode {
-        case .off:
+        case .off, .none:
             return .hidden
-        case .none, .countUpFromApply:
+        case .countUpFromApply:
             if isLive(profile.id), let start = countUpAnchors[profile.id] {
                 return .countUp(from: start)
             }
@@ -506,6 +506,28 @@ final class AppModel: ObservableObject {
         store.deleteArtwork(filename: profile.largeImageFilename)
         store.deleteArtwork(filename: profile.smallImageFilename)
         profiles.removeAll { $0.id == profile.id }
+        persistProfiles()
+    }
+
+    /// Moves one profile to another’s place among `visibleIDs`, leaving every other profile where it is.
+    func reorderProfiles(moving sourceID: UUID, to targetID: UUID, among visibleIDs: [UUID]) {
+        guard sourceID != targetID,
+              let from = visibleIDs.firstIndex(of: sourceID),
+              let to = visibleIDs.firstIndex(of: targetID) else { return }
+        var order = visibleIDs
+        let moved = order.remove(at: from)
+        order.insert(moved, at: to)
+        let visible = Set(visibleIDs)
+        let byID = Dictionary(uniqueKeysWithValues: profiles.map { ($0.id, $0) })
+        var next = order.makeIterator()
+        profiles = profiles.map { profile in
+            guard visible.contains(profile.id),
+                  let nextID = next.next(),
+                  let replacement = byID[nextID] else {
+                return profile
+            }
+            return replacement
+        }
         persistProfiles()
     }
 

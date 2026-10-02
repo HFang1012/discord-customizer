@@ -55,21 +55,15 @@ struct ProfileCardView: View {
 
     private var cardButton: some View {
         cardBody
-            .background {
-                Button(action: {
-                    guard isInteractive else { return }
-                    onSelect()
-                }) {
-                    Color.clear
-                        .contentShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
-                }
-                .buttonStyle(.plain)
-                .disabled(!isInteractive)
+            .contentShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+            .onTapGesture {
+                guard isInteractive else { return }
+                onSelect()
             }
             .accessibilityAddTraits(isLive ? .isSelected : [])
             .accessibilityLabel("\(profile.activityType.label), \(profile.listTitle)")
-            .accessibilityHint(isLive ? "Removes this status" : "Adds this status")
-            .accessibilityAddTraits(.isButton)
+            .accessibilityHint(isInteractive ? (isLive ? "Removes this status. Drag to rearrange." : "Adds this status. Drag to rearrange.") : "")
+            .accessibilityAddTraits(isInteractive ? .isButton : [])
     }
 
     private var cardBody: some View {
@@ -117,13 +111,14 @@ struct ProfileCardView: View {
                             hours: profile.customHoursValue,
                             minutes: profile.customMinutesValue,
                             seconds: profile.customSecondsValue,
+                            activityType: profile.activityType,
                             isEnabled: !isPublishing,
                             onCommit: { hours, minutes, seconds in
                                 onCustomTimer?(hours, minutes, seconds)
                             }
                         )
                     } else if timer != .hidden {
-                        PresenceTimer(display: timer)
+                        PresenceTimer(display: timer, activityType: profile.activityType)
                             .allowsHitTesting(false)
                     }
                     if let statusNote {
@@ -165,6 +160,7 @@ private struct CustomTimerFields: View {
     var hours: Int
     var minutes: Int
     var seconds: Int
+    var activityType: ActivityType
     var isEnabled: Bool
     var onCommit: (Int, Int, Int) -> Void
 
@@ -179,7 +175,7 @@ private struct CustomTimerFields: View {
 
     var body: some View {
         HStack(spacing: 6) {
-            Image(systemName: "gamecontroller.fill")
+            Image(systemName: activityType.timerSymbol)
                 .allowsHitTesting(false)
             HStack(spacing: 0) {
                 part($hoursText, field: .hours, width: 36)

@@ -163,6 +163,7 @@ private final class ArtworkHostView: NSView {
 
 struct PresenceTimer: View {
     var display: TimerDisplay
+    var activityType: ActivityType = .playing
 
     var body: some View {
         switch display {
@@ -183,7 +184,7 @@ struct PresenceTimer: View {
 
     private func label(_ text: String) -> some View {
         HStack(spacing: 6) {
-            Image(systemName: "gamecontroller.fill")
+            Image(systemName: activityType.timerSymbol)
             Text(text)
         }
         .font(.system(size: 13, weight: .semibold).monospacedDigit())
