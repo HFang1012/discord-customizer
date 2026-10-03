@@ -31,6 +31,15 @@ enum ArtworkSource {
     case file(URL)
     case remote(URL)
 
+    var byteCount: Int? {
+        switch self {
+        case .file(let url):
+            return (try? url.resourceValues(forKeys: [.fileSizeKey]))?.fileSize
+        case .remote:
+            return nil
+        }
+    }
+
     var fingerprint: String {
         switch self {
         case .file(let url):
@@ -43,8 +52,8 @@ enum ArtworkSource {
 
 /// Uploads local images to a public host, then registers the public URL with Discord external assets.
 ///
-/// Catbox is tried first because Discord can keep those URLs indefinitely. Its edge currently
-/// rejects many anonymous uploads with HTTP 412 “Invalid uploader”, so later hosts are fallbacks.
+/// Hosts sometimes accept an upload and still serve nothing (catbox has returned links to empty files),
+/// so every new link is fetched back before Discord gets it, and cached links are checked again on apply.
 struct ArtworkPublisher {
     private static let userAgent = "DiscordStatusModifier/1.0 (Macintosh)"
     private static let maxBytes = 50 * 1024 * 1024
@@ -66,7 +75,8 @@ struct ArtworkPublisher {
         }
 
         let publicURL: String
-        if let cache, cache.fingerprint == fingerprint, cache.publicURL.hasPrefix("https://") {
+        if let cache, cache.fingerprint == fingerprint, cache.publicURL.hasPrefix("https://"),
+           await check(cache.publicURL, expectedBytes: source.byteCount) != .broken {
             publicURL = cache.publicURL
         } else {
             switch source {
@@ -122,12 +132,57 @@ struct ArtworkPublisher {
                 lastDetail = error.localizedDescription
                 continue
             }
-            if let url = host.parse(body) {
-                return url
+            guard let url = host.parse(body) else {
+                lastDetail = hostDetail(status: status, body: body)
+                continue
             }
-            lastDetail = hostDetail(status: status, body: body)
+            if await check(url, expectedBytes: data.count) == .broken {
+                lastDetail = "The host accepted the file but served an empty or different file."
+                continue
+            }
+            return url
         }
         throw ArtworkError.host(lastDetail)
+    }
+
+    enum LinkCheck: Equatable {
+        case ok
+        /// The host answered, and the file is missing, empty, or a different size.
+        case broken
+        /// No clear answer, such as a timeout. The link is kept rather than uploading again.
+        case unknown
+    }
+
+    /// Fetches one byte. HEAD is not used because some hosts answer it with 404 for files that exist.
+    func check(_ link: String, expectedBytes: Int?) async -> LinkCheck {
+        guard let url = URL(string: link) else { return .broken }
+        var request = URLRequest(url: url)
+        request.timeoutInterval = 15
+        request.setValue("bytes=0-0", forHTTPHeaderField: "Range")
+        request.setValue(Self.userAgent, forHTTPHeaderField: "User-Agent")
+        guard let (data, response) = try? await session.data(for: request),
+              let http = response as? HTTPURLResponse else {
+            return .unknown
+        }
+        switch http.statusCode {
+        case 206:
+            let range = http.value(forHTTPHeaderField: "Content-Range") ?? ""
+            guard let total = range.split(separator: "/").last.flatMap({ Int($0) }) else {
+                return data.isEmpty ? .broken : .ok
+            }
+            if total == 0 { return .broken }
+            if let expectedBytes, total != expectedBytes { return .broken }
+            return .ok
+        case 200..<300:
+            // The host ignored the range and sent the whole file.
+            if data.isEmpty { return .broken }
+            if let expectedBytes, data.count != expectedBytes { return .broken }
+            return .ok
+        case 404, 410:
+            return .broken
+        default:
+            return .unknown
+        }
     }
 
     private func postFile(
@@ -139,7 +194,7 @@ struct ArtworkPublisher {
         let boundary = "Boundary-\(UUID().uuidString)"
         var request = URLRequest(url: host.endpoint)
         request.httpMethod = "POST"
-        request.timeoutInterval = 60
+        request.timeoutInterval = 45
         request.setValue("multipart/form-data; boundary=\(boundary)", forHTTPHeaderField: "Content-Type")
         request.setValue(Self.userAgent, forHTTPHeaderField: "User-Agent")
         request.httpBody = multipartBody(
@@ -279,12 +334,13 @@ struct ArtworkPublisher {
         return trimmed
     }
 
-    /// Public image hosts Discord can fetch. Catbox is preferred; the rest cover its anonymous-upload block.
+    /// Public image hosts Discord can fetch, fastest and most reliable first.
+    /// Litterbox is last because its links expire after 72 hours.
     private enum ImageHost: CaseIterable {
-        case catbox
-        case litterbox
-        case x0
         case piximg
+        case catbox
+        case x0
+        case litterbox
 
         var endpoint: URL {
             switch self {
